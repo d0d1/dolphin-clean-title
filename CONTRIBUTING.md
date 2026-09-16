@@ -30,8 +30,8 @@ technology badges before the implementation stack is selected.
 
 Public tracked documentation must contain no internal prose, prompts,
 conversation history, raw research notes, or temporary reasoning. Keep
-temporary research under the ignored `.agent/` directory and publish only
-reviewed, durable conclusions in tracked documentation.
+temporary research under the ignored `.agent/research/` directory and
+publish only reviewed, durable conclusions in tracked documentation.
 
 ## Changes and review
 

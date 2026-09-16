@@ -19,7 +19,8 @@ files or directories for possible future tools.
 This project uses no GitHub Actions. If continuous integration becomes
 necessary, research CI alternatives first, compare their operational and
 maintenance implications, and document the decision before configuration is
-added. Do not create CI configuration as part of preparatory work.
+added. Any selected alternative must use checks that are reproducible locally.
+Do not create CI configuration as part of preparatory work.
 
 ## GitHub topics
 
@@ -34,7 +35,7 @@ reach a count.
 Keep implementation, packaging, documentation, and diagnostics as separate
 concerns. Verify changes with deterministic checks appropriate to the known
 implementation stack. Record durable conclusions in tracked documentation and
-keep temporary research under the ignored `.agent/` directory.
+keep temporary research under the ignored `.agent/research/` directory.
 
 Do not install dependencies or scaffold implementation, test, or tooling
 directories without a documented need and a selected, researched

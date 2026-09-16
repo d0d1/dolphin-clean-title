@@ -2,8 +2,12 @@
 
 Testing must support autonomous agent execution and diagnosis. Prefer
 deterministic, noninteractive automated verification with explicit inputs,
-stable expected results, and failure output that identifies the relevant
-boundary.
+stable expected results, and failure output sufficient to identify the
+relevant boundary and diagnose the cause.
+
+Prefer automated verification over routine user testing. Ask the user to test
+only when local automated verification cannot exercise a necessary
+environment-specific behavior.
 
 Select testing tools only after the implementation stack is known. The choice
 must be based on the researched stack and its supported tooling, not on

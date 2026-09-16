@@ -9,8 +9,10 @@ survive normal Dolphin and taskbar updates.
 
 ## Structural principles
 
-Require clean separation of concerns and a professional structure from the
-beginning. Keep title handling, integration boundaries, packaging, and
+Maintain professional structural quality from the beginning.
+
+Require clean separation of concerns. Give each component a clear
+responsibility, and keep title handling, integration boundaries, packaging, and
 diagnostics independently understandable when the implementation is added.
 
 Avoid monoliths, circular dependencies, dumping-ground modules, inappropriate

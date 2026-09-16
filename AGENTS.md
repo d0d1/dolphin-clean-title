@@ -1,9 +1,9 @@
 # Agent instructions
 
 This repository is intentionally documentation-only until an implementation
-decision is made. Agents must avoid speculative scaffolding: do not create
-implementation, test, tooling, or CI directories or placeholder files merely
-to anticipate future work.
+decision is made. Avoid unnecessary dependencies and speculative scaffolding:
+do not create implementation, test, tooling, or CI directories or placeholder
+files merely to anticipate future work.
 
 ## Authoritative project policy
 
@@ -31,17 +31,19 @@ implementing the change.
 - Keep concerns cleanly separated and avoid monoliths, circular dependencies,
   dumping-ground modules, inappropriate coupling, and unjustified
   abstractions.
-- Prefer agent-autonomous, reproducible, noninteractive workflows and
-  deterministic automated verification.
+- Prefer agent-autonomous, reproducible, deterministic, scriptable,
+  noninteractive workflows and automated verification.
+- Perform testing and debugging autonomously whenever practical, collecting
+  enough local evidence to diagnose failures without routine user assistance.
 - Select testing tools only after the implementation stack is known.
-- Research technologies, tools, dependencies, and current stable versions
-  first; prefer authoritative sources, latest stable versions, and
+- Research technologies, tools, dependencies, and versions before selecting or
+  installing them; prefer authoritative sources, latest stable versions, and
   project-local or isolated environments. Document important version choices
   and any reason for using an older version.
 - Do not add GitHub Actions. If CI becomes necessary, research alternatives
   before selecting one.
-- Keep temporary research in `.agent/` and generated diagnostics in
-  `.artifacts/`; neither belongs in tracked documentation.
+- Keep temporary research under ignored `.agent/research/` and generated
+  diagnostics under `.artifacts/`; neither belongs in tracked documentation.
 - Design debugging with actionable logs, environment and version diagnostics,
   reproducible checks, and useful failure artifacts once implementation exists.
 - Use Conventional Commits 1.0.0 and keep public tracked documentation free
