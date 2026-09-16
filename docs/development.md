@@ -24,7 +24,8 @@ usable `DISPLAY`; pure unit tests remain useful without it.
 Use `./install.sh` to install the current checkout for the current user,
 `./install.sh --no-start` when only the files should be activated, and
 `./uninstall.sh` to stop the service and remove only files managed by this
-project. `~/.local/bin/dolphin-clean-title --diagnose` reports the local
+project. `--no-start` stops an older running instance and leaves the service
+stopped. `~/.local/bin/dolphin-clean-title --diagnose` reports the local
 compatibility boundary and matching windows. Keep temporary research in
 `.agent/research/` and generated logs or dumps in `.artifacts/`.
 

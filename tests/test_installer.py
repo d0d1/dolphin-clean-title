@@ -121,6 +121,123 @@ class InstallerTests(unittest.TestCase):
             self.assertFalse(wrapper.exists())
             self.assertFalse(pid_file.exists())
 
+    def test_no_start_stops_an_existing_service(self):
+        with tempfile.TemporaryDirectory() as home:
+            env = self._environment(home)
+            state = Path(env["XDG_STATE_HOME"])
+            pid_file = state / "dolphin-clean-title" / "dolphin-clean-title.pid"
+            try:
+                initial = subprocess.run(
+                    ["sh", str(ROOT / "install.sh")],
+                    cwd=ROOT,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(initial.returncode, 0, initial.stderr)
+                self._wait_for_path(pid_file)
+
+                deferred = subprocess.run(
+                    ["sh", str(ROOT / "install.sh"), "--no-start"],
+                    cwd=ROOT,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(deferred.returncode, 0, deferred.stderr)
+                self.assertFalse(
+                    pid_file.exists(), "--no-start must not leave an old service alive"
+                )
+            finally:
+                subprocess.run(
+                    ["sh", str(ROOT / "uninstall.sh")],
+                    cwd=ROOT,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                )
+
+    def test_service_start_failure_restores_and_restarts_previous_service(self):
+        with tempfile.TemporaryDirectory() as home:
+            env = self._environment(home)
+            initial = subprocess.run(
+                ["sh", str(ROOT / "install.sh"), "--no-start"],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(initial.returncode, 0, initial.stderr)
+
+            root = Path(env["XDG_DATA_HOME"]) / "dolphin-clean-title"
+            current = root / "current"
+            wrapper = Path(home) / ".local" / "bin" / "dolphin-clean-title"
+            desktop = (
+                Path(env["XDG_CONFIG_HOME"])
+                / "autostart"
+                / "dolphin-clean-title.desktop"
+            )
+            before_target = os.readlink(current)
+            before_wrapper = wrapper.read_bytes()
+            before_desktop = desktop.read_bytes()
+            calls = []
+
+            def fake_run_wrapper(path, action):
+                calls.append(action)
+                if action == "--stop":
+                    if calls.count("--stop") == 1:
+                        return subprocess.CompletedProcess(
+                            [str(path), action],
+                            0,
+                            stdout="Dolphin Clean Title service stopped\n",
+                            stderr="",
+                        )
+                    return subprocess.CompletedProcess(
+                        [str(path), action],
+                        0,
+                        stdout="service not running\n",
+                        stderr="",
+                    )
+                if action == "--background":
+                    if calls.count("--background") == 1:
+                        return subprocess.CompletedProcess(
+                            [str(path), action],
+                            1,
+                            stdout="",
+                            stderr="injected startup failure",
+                        )
+                    return subprocess.CompletedProcess(
+                        [str(path), action], 0, stdout="", stderr=""
+                    )
+                raise AssertionError(f"unexpected action: {action}")
+
+            with mock.patch.dict(os.environ, env):
+                with mock.patch.object(
+                    installer, "_run_wrapper", side_effect=fake_run_wrapper
+                ):
+                    with mock.patch.object(installer, "_wait_for_service"):
+                        with self.assertRaisesRegex(
+                            installer.InstallationError,
+                            "previous installation was restored and the previous "
+                            "service was restarted",
+                        ):
+                            installer.install(start_service=True)
+
+            self.assertEqual(calls, ["--stop", "--background", "--stop", "--background"])
+            self.assertEqual(os.readlink(current), before_target)
+            self.assertEqual(wrapper.read_bytes(), before_wrapper)
+            self.assertEqual(desktop.read_bytes(), before_desktop)
+            self.assertEqual(len(list((root / "releases").iterdir())), 1)
+
+            uninstall = subprocess.run(
+                ["sh", str(ROOT / "uninstall.sh")],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(uninstall.returncode, 0, uninstall.stderr)
+
     def test_install_refuses_nonmanaged_binary(self):
         with tempfile.TemporaryDirectory() as home:
             env = self._environment(home)

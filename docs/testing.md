@@ -40,3 +40,14 @@ captured service output needed for diagnosis. Routine user testing is not a
 substitute for these checks. When a desktop-specific behavior cannot be
 exercised locally, document the exact limitation and do not claim it as
 verified.
+
+## Evidence boundary
+
+The live X11 test uses the available `DISPLAY` and creates controlled test
+windows with Xlib. In the verified environment that display is provided by
+Xwayland; the test subprocess sets `XDG_SESSION_TYPE=x11` because it is testing
+the X11 protocol path, not claiming that the surrounding desktop is a native
+X11 session. The suite therefore demonstrates the title/property mechanism on
+an X11-compatible server, but does not verify native Xorg behavior, a real
+Dolphin build, or native Wayland behavior. Native Wayland has no implementation
+or integration test in the current product.

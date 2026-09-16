@@ -118,6 +118,9 @@ class X11IntegrationTests(unittest.TestCase):
     def test_rewrites_dolphin_titles_and_leaves_other_windows_alone(self):
         with tempfile.TemporaryDirectory() as state:
             env = os.environ.copy()
+            # A Wayland desktop may provide an Xwayland DISPLAY. Force the
+            # service's X11 path here so this remains an X11 protocol test;
+            # native-session detection is covered separately.
             env["XDG_SESSION_TYPE"] = "x11"
             env.pop("WAYLAND_DISPLAY", None)
             env["XDG_STATE_HOME"] = state
@@ -144,6 +147,10 @@ class X11IntegrationTests(unittest.TestCase):
             other = X11TestWindow(env["DISPLAY"], "not-dolphin", "Other")
             observer = X11Connection(env["DISPLAY"])
             try:
+                self.assertRegex(
+                    observer.server_description(),
+                    r"^(Xwayland|X11 server): .+ \(protocol [0-9]+\.[0-9]+\)$",
+                )
                 dolphin.set_title("Home — Dolphin")
                 other.set_title("Other - Dolphin")
                 dolphin.show()

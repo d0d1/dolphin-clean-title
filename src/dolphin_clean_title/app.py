@@ -117,6 +117,7 @@ def diagnose() -> int:
         with X11Connection(validated.display) as connection:
             matches = connection.matching_windows()
             print("X11 connection: OK")
+            print(f"X11 server: {connection.server_description()}")
             print(f"matching Dolphin windows: {len(matches)}")
             for window in matches:
                 title = window.title if window.title is not None else "<unset>"
@@ -187,8 +188,9 @@ def run_foreground(verbose: bool, path: str | None) -> int:
         with InstanceLock():
             with X11Connection(info.display) as connection:
                 LOGGER.info(
-                    "connected to X11; monitoring _NET_WM_NAME and WM_NAME "
-                    "for Dolphin windows"
+                    "connected to X11 server %s; monitoring _NET_WM_NAME and "
+                    "WM_NAME for Dolphin windows",
+                    connection.server_description(),
                 )
 
                 def on_cleaned(result) -> None:

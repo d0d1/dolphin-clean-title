@@ -151,6 +151,22 @@ class X11Connection:
         lib = self.lib
         lib.XOpenDisplay.argtypes = [ctypes.c_char_p]
         lib.XOpenDisplay.restype = DisplayPtr
+        lib.XServerVendor.argtypes = [DisplayPtr]
+        lib.XServerVendor.restype = ctypes.c_char_p
+        lib.XVendorRelease.argtypes = [DisplayPtr]
+        lib.XVendorRelease.restype = ctypes.c_int
+        lib.XProtocolVersion.argtypes = [DisplayPtr]
+        lib.XProtocolVersion.restype = ctypes.c_int
+        lib.XProtocolRevision.argtypes = [DisplayPtr]
+        lib.XProtocolRevision.restype = ctypes.c_int
+        lib.XQueryExtension.argtypes = [
+            DisplayPtr,
+            ctypes.c_char_p,
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_int),
+        ]
+        lib.XQueryExtension.restype = ctypes.c_int
         lib.XCloseDisplay.argtypes = [DisplayPtr]
         lib.XCloseDisplay.restype = ctypes.c_int
         lib.XDefaultScreen.argtypes = [DisplayPtr]
@@ -250,6 +266,34 @@ class X11Connection:
     @property
     def fileno(self) -> int:
         return int(self.lib.XConnectionNumber(self.display))
+
+    def server_description(self) -> str:
+        """Return stable X-server identity details for local diagnostics."""
+        raw_vendor = self.lib.XServerVendor(self.display)
+        vendor = (
+            raw_vendor.decode("utf-8", errors="replace")
+            if raw_vendor
+            else "<unknown>"
+        )
+        major_opcode = ctypes.c_int()
+        first_event = ctypes.c_int()
+        first_error = ctypes.c_int()
+        is_xwayland = bool(
+            self.lib.XQueryExtension(
+                self.display,
+                b"XWAYLAND",
+                ctypes.byref(major_opcode),
+                ctypes.byref(first_event),
+                ctypes.byref(first_error),
+            )
+        )
+        server_kind = "Xwayland" if is_xwayland else "X11 server"
+        return (
+            f"{server_kind}: {vendor} "
+            f"release {int(self.lib.XVendorRelease(self.display))} "
+            f"(protocol {int(self.lib.XProtocolVersion(self.display))}."
+            f"{int(self.lib.XProtocolRevision(self.display))})"
+        )
 
     def _get_property(
         self, window: int, property_atom: int

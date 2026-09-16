@@ -20,24 +20,28 @@ property can therefore display the cleaned title.
 Dolphin continues to be launched normally. The service is independent of
 Dolphin and taskbar files, so ordinary updates to either do not overwrite it.
 Installation is user-local and repeated installation activates a new staged
-copy without leaving the previous service running.
+copy without leaving the previous service running. `--no-start` also stops an
+older running service and leaves the newly installed service stopped.
 
 ## Compatibility
 
-This release candidate supports Linux X11 desktop sessions with:
+The current implementation targets Linux X11-compatible sessions with:
 
 - Python 3.10 or newer;
 - a usable `DISPLAY`; and
 - the distro-provided `libX11.so.6` runtime library.
 
-Native Wayland sessions are not supported by this release. The installer
-detects that boundary and fails before activation. The service is intended for
-window managers or compositors that honor the standard EWMH title property;
-behavior outside that boundary has not been claimed or verified.
+Native Wayland sessions are not supported. The installer detects that
+boundary and fails before activation. The service is intended for window
+managers or compositors that honor the standard EWMH title property; behavior
+outside that boundary has not been claimed or verified.
 
-The repository's full suite has been run with Python 3.12.3 on Linux using an
-Xwayland X11 display. Other Python versions and desktop combinations at or
-above the enforced baseline require their own verification.
+The repository's live evidence has been run with Python 3.12.3 on Linux using
+an Xwayland X11 display. The integration tests exercise controlled X11 test
+windows, not a native Xorg session or a real Dolphin process. Native X11
+sessions are an intended compatibility target but remain unverified here;
+other Python versions and desktop combinations at or above the enforced
+baseline require their own verification.
 
 ## Install
 
@@ -82,8 +86,8 @@ restoring Dolphin's original title behavior.
 ## Troubleshooting
 
 - If installation reports that the session is unsupported, check
-  `XDG_SESSION_TYPE` and `DISPLAY`. This release requires an X11 desktop
-  session; native Wayland sessions are not supported.
+  `XDG_SESSION_TYPE` and `DISPLAY`. The current implementation requires an
+  X11-compatible session; native Wayland sessions are not supported.
 - If a title is unchanged, run
   `~/.local/bin/dolphin-clean-title --diagnose` and inspect the reported
   matching windows. Only an exact `dolphin` `WM_CLASS` instance or class is

@@ -12,7 +12,8 @@ next useful check, and avoid requiring a user to infer hidden state.
 
 The service provides actionable file logging, `--verbose` foreground output,
 `--check` environment validation, and `--diagnose` inspection of the session,
-Python version, libX11 availability, X11 connectivity, and matching windows.
+Python version, libX11 availability, X11 connectivity, X-server kind/vendor
+and protocol version, and matching windows.
 The default log is under the XDG state directory; use `--log-file` to place a
 diagnostic log under `.artifacts/` during development.
 
@@ -42,6 +43,7 @@ rewrites.
 
 If installation fails, preserve the complete command output and inspect the
 reported Python, `XDG_SESSION_TYPE`, `DISPLAY`, and libX11 values. A native
-Wayland session is an expected unsupported environment for this release, not
-a service crash. Do not infer compatibility from a skipped X11 integration
-test.
+Wayland session is an expected unsupported environment for the current
+implementation, not a service crash. An Xwayland display can exercise the X11
+protocol path, but it is not evidence of native Xorg or native Wayland support.
+Do not infer compatibility from a skipped X11 integration test.

@@ -192,6 +192,100 @@ def _assert_managed_or_absent(path: Path, label: str) -> None:
         raise InstallationError(f"refusing to overwrite non-managed {label}: {path}")
 
 
+def _rollback_activation(
+    *,
+    activation_paths: dict[str, Path],
+    snapshots: dict[str, PathSnapshot | None],
+    current_temporary: Path,
+    final_release: Path,
+    root: Path,
+    releases: Path,
+    root_was_present: bool,
+) -> None:
+    """Restore activation paths and remove the newly staged release."""
+    current_temporary.unlink(missing_ok=True)
+    try:
+        for name, path in activation_paths.items():
+            _restore(path, snapshots[name])
+        shutil.rmtree(final_release, ignore_errors=True)
+        if not root_was_present:
+            try:
+                releases.rmdir()
+                root.rmdir()
+            except OSError:
+                pass
+    except (OSError, InstallationError) as exc:
+        raise InstallationError(
+            f"activation failed ({exc}) and rollback also failed; inspect {root}"
+        ) from exc
+
+
+def _rollback_failed_service_start(
+    *,
+    cause: str,
+    wrapper: Path,
+    previous_service_running: bool,
+    service_stop_succeeded: bool,
+    activation_paths: dict[str, Path],
+    snapshots: dict[str, PathSnapshot | None],
+    current_temporary: Path,
+    final_release: Path,
+    root: Path,
+    releases: Path,
+    root_was_present: bool,
+) -> None:
+    """Roll back a failed service transition and report any recovery failure."""
+    cleanup_problem = ""
+    if service_stop_succeeded:
+        try:
+            cleanup = _run_wrapper(wrapper, "--stop")
+            if cleanup.returncode != 0:
+                cleanup_problem = (
+                    "could not stop the failed new service: "
+                    f"{cleanup.stderr.strip() or cleanup.stdout.strip()}"
+                )
+        except InstallationError as exc:
+            cleanup_problem = f"could not stop the failed new service: {exc}"
+
+    try:
+        _rollback_activation(
+            activation_paths=activation_paths,
+            snapshots=snapshots,
+            current_temporary=current_temporary,
+            final_release=final_release,
+            root=root,
+            releases=releases,
+            root_was_present=root_was_present,
+        )
+    except InstallationError as rollback_error:
+        raise InstallationError(f"{cause}; {rollback_error}") from rollback_error
+
+    restart_problem = ""
+    if previous_service_running:
+        restored_wrapper = activation_paths["wrapper"]
+        try:
+            restarted = _run_wrapper(restored_wrapper, "--background")
+            if restarted.returncode != 0:
+                restart_problem = (
+                    "could not restart the previous service: "
+                    f"{restarted.stderr.strip() or restarted.stdout.strip()}"
+                )
+            else:
+                _wait_for_service()
+        except (InstallationError, OSError) as exc:
+            restart_problem = f"could not restart the previous service: {exc}"
+
+    recovery = "previous installation was restored"
+    if previous_service_running and not restart_problem:
+        recovery += " and the previous service was restarted"
+    problems = "; ".join(
+        problem for problem in (cleanup_problem, restart_problem) if problem
+    )
+    if problems:
+        recovery += f"; {problems}"
+    raise InstallationError(f"{cause}; {recovery}")
+
+
 def install(start_service: bool = True) -> int:
     _preflight()
     root = data_root()
@@ -245,44 +339,59 @@ def install(start_service: bool = True) -> int:
         _atomic_write(root / ".managed", f"{DATA_MARKER}\n", 0o600)
         os.replace(current_temporary, current)
     except (InstallationError, OSError) as exc:
-        current_temporary.unlink(missing_ok=True)
         try:
-            for name, path in activation_paths.items():
-                _restore(path, snapshots[name])
-            shutil.rmtree(final_release, ignore_errors=True)
-            if not root_was_present:
-                try:
-                    releases.rmdir()
-                    root.rmdir()
-                except OSError:
-                    pass
-        except (OSError, InstallationError) as rollback_error:
-            raise InstallationError(
-                f"activation failed ({exc}) and rollback also failed "
-                f"({rollback_error}); inspect {root}"
-            ) from rollback_error
+            _rollback_activation(
+                activation_paths=activation_paths,
+                snapshots=snapshots,
+                current_temporary=current_temporary,
+                final_release=final_release,
+                root=root,
+                releases=releases,
+                root_was_present=root_was_present,
+            )
+        except InstallationError as rollback_error:
+            raise rollback_error from exc
         raise InstallationError(
             f"installation files were staged but could not be activated; "
             f"the previous installation was restored: {exc}"
         ) from exc
 
-    if start_service:
+    service_stop_succeeded = False
+    previous_service_running = False
+    try:
         stopped = _run_wrapper(wrapper, "--stop")
         if stopped.returncode != 0:
             raise InstallationError(
                 f"could not stop the previous service: "
                 f"{stopped.stderr.strip() or stopped.stdout.strip()}"
             )
-        started = _run_wrapper(wrapper, "--background")
-        if started.returncode != 0:
-            raise InstallationError(
-                f"installation is complete but the service could not start: "
-                f"{started.stderr.strip() or started.stdout.strip()}"
-            )
-        _wait_for_service()
-        print(f"installed and started {APP_NAME}")
-    else:
-        print(f"installed {APP_NAME}; service start deferred")
+        service_stop_succeeded = True
+        previous_service_running = "service stopped" in stopped.stdout.lower()
+        if start_service:
+            started = _run_wrapper(wrapper, "--background")
+            if started.returncode != 0:
+                raise InstallationError(
+                    "the new service could not start: "
+                    f"{started.stderr.strip() or started.stdout.strip()}"
+                )
+            _wait_for_service()
+            print(f"installed and started {APP_NAME}")
+        else:
+            print(f"installed {APP_NAME}; service start deferred")
+    except (InstallationError, OSError) as exc:
+        _rollback_failed_service_start(
+            cause=str(exc),
+            wrapper=wrapper,
+            previous_service_running=previous_service_running,
+            service_stop_succeeded=service_stop_succeeded,
+            activation_paths=activation_paths,
+            snapshots=snapshots,
+            current_temporary=current_temporary,
+            final_release=final_release,
+            root=root,
+            releases=releases,
+            root_was_present=root_was_present,
+        )
     print(f"binary: {wrapper}")
     print(f"autostart: {desktop}")
     return 0
