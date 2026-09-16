@@ -1,0 +1,29 @@
+"""XDG paths owned by the user-local installation."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from typing import Mapping
+
+APP_NAME = "dolphin-clean-title"
+
+
+def state_dir(env: Mapping[str, str] | None = None) -> Path:
+    values = os.environ if env is None else env
+    state_home = values.get("XDG_STATE_HOME")
+    if state_home:
+        return Path(state_home) / APP_NAME
+    return Path.home() / ".local" / "state" / APP_NAME
+
+
+def log_path(env: Mapping[str, str] | None = None) -> Path:
+    return state_dir(env) / f"{APP_NAME}.log"
+
+
+def lock_path(env: Mapping[str, str] | None = None) -> Path:
+    return state_dir(env) / f"{APP_NAME}.lock"
+
+
+def pid_path(env: Mapping[str, str] | None = None) -> Path:
+    return state_dir(env) / f"{APP_NAME}.pid"

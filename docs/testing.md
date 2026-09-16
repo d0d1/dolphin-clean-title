@@ -16,8 +16,27 @@ checkout and avoid requiring a particular taskbar, account, network service,
 or interactive desktop session unless an environment-specific integration
 check is explicitly justified.
 
-Once implementation exists, verification should cover the title suffix rules,
-titles that must remain unchanged, window-manager or compositor visibility,
-update-resilient integration boundaries, packaging behavior, and runtime
-constraints. Define the exact test layout and tools as part of the researched
-stack decision and document them with the implementation.
+## Verification levels
+
+The current suite uses Python's standard `unittest` module and is run with
+`make check`. It covers the title suffix rules, window-system visibility,
+packaging behavior, lifecycle safety, and runtime constraints:
+
+- Pure title-rule tests verify exact matching, one-suffix removal, and
+  unchanged near misses.
+- Environment and lifecycle tests verify supported-session detection,
+  single-instance locking, stale PID handling, and clean shutdown.
+- Packaging tests exercise user-local installation, repeated installation,
+  managed-file safety, automatic service restart, and uninstall cleanup in
+  temporary XDG directories.
+- The live X11 integration test creates controlled X11 windows, changes their
+  titles, and verifies that matching Dolphin windows are rewritten while other
+  windows are not. It also verifies subsequent title changes and EWMH-visible
+  results. It is skipped when no X11 display is available; a skipped live test
+  is an environment limitation, not evidence of Wayland support.
+
+Every automated failure must retain the command, environment boundary, and
+captured service output needed for diagnosis. Routine user testing is not a
+substitute for these checks. When a desktop-specific behavior cannot be
+exercised locally, document the exact limitation and do not claim it as
+verified.

@@ -1,0 +1,547 @@
+"""Small, dependency-free Xlib adapter and event-driven title monitor."""
+
+from __future__ import annotations
+
+import ctypes
+import ctypes.util
+import logging
+import select
+from dataclasses import dataclass
+from typing import Callable
+
+from .title import clean_title
+
+LOGGER = logging.getLogger(__name__)
+
+ATOM_NONE = 0
+ANY_PROPERTY_TYPE = 0
+PROP_MODE_REPLACE = 0
+
+PROPERTY_CHANGE_MASK = 1 << 22
+SUBSTRUCTURE_NOTIFY_MASK = 1 << 19
+STRUCTURE_NOTIFY_MASK = 1 << 17
+
+CREATE_NOTIFY = 16
+DESTROY_NOTIFY = 17
+UNMAP_NOTIFY = 18
+MAP_NOTIFY = 19
+REPARENT_NOTIFY = 21
+PROPERTY_NOTIFY = 28
+
+EVENT_BUFFER_SIZE = 192
+
+DisplayPtr = ctypes.c_void_p
+Window = ctypes.c_ulong
+Atom = ctypes.c_ulong
+
+
+class XPropertyEvent(ctypes.Structure):
+    _fields_ = [
+        ("type", ctypes.c_int),
+        ("serial", ctypes.c_ulong),
+        ("send_event", ctypes.c_int),
+        ("display", ctypes.c_void_p),
+        ("window", ctypes.c_ulong),
+        ("atom", ctypes.c_ulong),
+        ("time", ctypes.c_ulong),
+        ("state", ctypes.c_int),
+    ]
+
+
+class XErrorEvent(ctypes.Structure):
+    _fields_ = [
+        ("type", ctypes.c_int),
+        ("display", ctypes.c_void_p),
+        ("resourceid", ctypes.c_ulong),
+        ("serial", ctypes.c_ulong),
+        ("error_code", ctypes.c_ubyte),
+        ("request_code", ctypes.c_ubyte),
+        ("minor_code", ctypes.c_ubyte),
+    ]
+
+
+XErrorHandler = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
+
+
+def find_x11_library() -> str | None:
+    """Return a loadable libX11 name for diagnostics, if one is available."""
+
+    library_name = ctypes.util.find_library("X11") or "libX11.so.6"
+    try:
+        ctypes.CDLL(library_name)
+    except OSError:
+        return None
+    return library_name
+
+
+@dataclass(frozen=True)
+class WindowInfo:
+    window: int
+    instance: str
+    window_class: str
+    title: str | None
+
+    @property
+    def is_dolphin(self) -> bool:
+        return self.instance.casefold() == "dolphin" or (
+            self.window_class.casefold() == "dolphin"
+        )
+
+
+@dataclass(frozen=True)
+class CleanResult:
+    window: int
+    original: str
+    cleaned: str
+
+
+@dataclass
+class OwnedTitle:
+    original_net_title: str | None
+    restore_title: str
+    cleaned_title: str
+
+
+class X11Unavailable(RuntimeError):
+    """Raised when libX11 or an X11 display cannot be used."""
+
+
+class X11Connection:
+    """Own one Xlib connection and expose the required EWMH operations."""
+
+    def __init__(self, display_name: str | None = None) -> None:
+        library_name = ctypes.util.find_library("X11") or "libX11.so.6"
+        try:
+            self.lib = ctypes.CDLL(library_name)
+        except OSError as exc:
+            raise X11Unavailable(
+                "libX11.so.6 is unavailable; install the distro's X11 client "
+                "runtime libraries"
+            ) from exc
+
+        self._configure_functions()
+        encoded_display = display_name.encode() if display_name else None
+        self.display = self.lib.XOpenDisplay(encoded_display)
+        if not self.display:
+            target = display_name or "$DISPLAY"
+            raise X11Unavailable(
+                f"cannot open X11 display {target}; check DISPLAY and X11 access"
+            )
+
+        self._last_x_error: int | None = None
+        self._ignored_property_events: dict[tuple[int, int], int] = {}
+        self._owned_titles: dict[int, OwnedTitle] = {}
+        self._error_handler = XErrorHandler(self._handle_x_error)
+        self.lib.XSetErrorHandler(self._error_handler)
+        screen = self.lib.XDefaultScreen(self.display)
+        self.root = int(self.lib.XRootWindow(self.display, screen))
+        self.net_client_list = self._intern("_NET_CLIENT_LIST")
+        self.net_wm_name = self._intern("_NET_WM_NAME")
+        self.wm_name = self._intern("WM_NAME")
+        self.wm_class = self._intern("WM_CLASS")
+        self.utf8_string = self._intern("UTF8_STRING")
+        self.lib.XSelectInput(
+            self.display,
+            self.root,
+            PROPERTY_CHANGE_MASK | SUBSTRUCTURE_NOTIFY_MASK,
+        )
+        self._sync_checked("selecting root events")
+
+    def _configure_functions(self) -> None:
+        lib = self.lib
+        lib.XOpenDisplay.argtypes = [ctypes.c_char_p]
+        lib.XOpenDisplay.restype = DisplayPtr
+        lib.XCloseDisplay.argtypes = [DisplayPtr]
+        lib.XCloseDisplay.restype = ctypes.c_int
+        lib.XDefaultScreen.argtypes = [DisplayPtr]
+        lib.XDefaultScreen.restype = ctypes.c_int
+        lib.XRootWindow.argtypes = [DisplayPtr, ctypes.c_int]
+        lib.XRootWindow.restype = Window
+        lib.XInternAtom.argtypes = [DisplayPtr, ctypes.c_char_p, ctypes.c_int]
+        lib.XInternAtom.restype = Atom
+        lib.XSetErrorHandler.argtypes = [XErrorHandler]
+        lib.XSetErrorHandler.restype = XErrorHandler
+        lib.XSelectInput.argtypes = [DisplayPtr, Window, ctypes.c_long]
+        lib.XSelectInput.restype = ctypes.c_int
+        lib.XGetWindowProperty.argtypes = [
+            DisplayPtr,
+            Window,
+            Atom,
+            ctypes.c_long,
+            ctypes.c_long,
+            ctypes.c_int,
+            Atom,
+            ctypes.POINTER(Atom),
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_ulong),
+            ctypes.POINTER(ctypes.c_ulong),
+            ctypes.POINTER(ctypes.POINTER(ctypes.c_ubyte)),
+        ]
+        lib.XGetWindowProperty.restype = ctypes.c_int
+        lib.XFree.argtypes = [ctypes.c_void_p]
+        lib.XFree.restype = ctypes.c_int
+        lib.XChangeProperty.argtypes = [
+            DisplayPtr,
+            Window,
+            Atom,
+            Atom,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.POINTER(ctypes.c_ubyte),
+            ctypes.c_int,
+        ]
+        lib.XChangeProperty.restype = ctypes.c_int
+        lib.XDeleteProperty.argtypes = [DisplayPtr, Window, Atom]
+        lib.XDeleteProperty.restype = ctypes.c_int
+        lib.XFlush.argtypes = [DisplayPtr]
+        lib.XFlush.restype = ctypes.c_int
+        lib.XSync.argtypes = [DisplayPtr, ctypes.c_int]
+        lib.XSync.restype = ctypes.c_int
+        lib.XPending.argtypes = [DisplayPtr]
+        lib.XPending.restype = ctypes.c_int
+        lib.XNextEvent.argtypes = [DisplayPtr, ctypes.c_void_p]
+        lib.XNextEvent.restype = ctypes.c_int
+        lib.XConnectionNumber.argtypes = [DisplayPtr]
+        lib.XConnectionNumber.restype = ctypes.c_int
+        lib.XQueryTree.argtypes = [
+            DisplayPtr,
+            Window,
+            ctypes.POINTER(Window),
+            ctypes.POINTER(Window),
+            ctypes.POINTER(ctypes.POINTER(Window)),
+            ctypes.POINTER(ctypes.c_uint),
+        ]
+        lib.XQueryTree.restype = ctypes.c_int
+
+    def _handle_x_error(self, _display: int, error_event: int) -> int:
+        if error_event:
+            event = ctypes.cast(error_event, ctypes.POINTER(XErrorEvent)).contents
+            self._last_x_error = int(event.error_code)
+        return 0
+
+    def _sync_checked(self, operation: str) -> None:
+        self._last_x_error = None
+        self.lib.XSync(self.display, 0)
+        if self._last_x_error is not None:
+            raise X11Unavailable(
+                f"X11 error {self._last_x_error} while {operation}; "
+                "the display or target window may have disappeared"
+            )
+
+    def _intern(self, name: str) -> int:
+        atom = int(self.lib.XInternAtom(self.display, name.encode("ascii"), 0))
+        if atom == ATOM_NONE:
+            raise X11Unavailable(f"X11 server rejected required atom {name}")
+        return atom
+
+    def close(self) -> None:
+        display = getattr(self, "display", None)
+        if display:
+            self.restore_owned_titles()
+            self.lib.XCloseDisplay(display)
+            self.display = None
+
+    def __enter__(self) -> "X11Connection":
+        return self
+
+    def __exit__(self, _exc_type, _exc_value, _traceback) -> None:
+        self.close()
+
+    @property
+    def fileno(self) -> int:
+        return int(self.lib.XConnectionNumber(self.display))
+
+    def _get_property(
+        self, window: int, property_atom: int
+    ) -> tuple[int, int, bytes] | None:
+        actual_type = Atom()
+        actual_format = ctypes.c_int()
+        item_count = ctypes.c_ulong()
+        bytes_after = ctypes.c_ulong()
+        data = ctypes.POINTER(ctypes.c_ubyte)()
+        self._last_x_error = None
+        status = self.lib.XGetWindowProperty(
+            self.display,
+            Window(window),
+            Atom(property_atom),
+            0,
+            262144,
+            0,
+            Atom(ANY_PROPERTY_TYPE),
+            ctypes.byref(actual_type),
+            ctypes.byref(actual_format),
+            ctypes.byref(item_count),
+            ctypes.byref(bytes_after),
+            ctypes.byref(data),
+        )
+        if self._last_x_error is not None:
+            raise X11Unavailable(
+                f"X11 error {self._last_x_error} while reading window "
+                f"0x{window:x}; it may have been destroyed"
+            )
+        if status != 0 or not data or actual_format.value not in (8, 16, 32):
+            if data:
+                self.lib.XFree(data)
+            return None
+
+        element_size = (
+            ctypes.sizeof(ctypes.c_ulong)
+            if actual_format.value == 32
+            else actual_format.value // 8
+        )
+        raw = ctypes.string_at(data, item_count.value * element_size)
+        self.lib.XFree(data)
+        return int(actual_type.value), int(actual_format.value), raw
+
+    def _get_text(self, window: int, atom: int) -> str | None:
+        property_value = self._get_property(window, atom)
+        if property_value is None:
+            return None
+        _actual_type, actual_format, raw = property_value
+        if actual_format != 8:
+            return None
+        return raw.rstrip(b"\0").decode("utf-8", errors="replace")
+
+    def _query_tree_ids(self) -> list[int]:
+        root_return = Window()
+        parent_return = Window()
+        children_return = ctypes.POINTER(Window)()
+        child_count = ctypes.c_uint()
+        self._last_x_error = None
+        status = self.lib.XQueryTree(
+            self.display,
+            Window(self.root),
+            ctypes.byref(root_return),
+            ctypes.byref(parent_return),
+            ctypes.byref(children_return),
+            ctypes.byref(child_count),
+        )
+        if self._last_x_error is not None or status == 0:
+            return []
+        try:
+            return [int(children_return[index]) for index in range(child_count.value)]
+        finally:
+            if children_return:
+                self.lib.XFree(children_return)
+
+    def _get_window_ids(self) -> list[int]:
+        client_windows: list[int] = []
+        property_value = self._get_property(self.root, self.net_client_list)
+        if property_value is not None:
+            actual_type, actual_format, raw = property_value
+            if actual_format == 32 and len(raw) % ctypes.sizeof(ctypes.c_ulong) == 0:
+                values = (
+                    ctypes.c_ulong * (len(raw) // ctypes.sizeof(ctypes.c_ulong))
+                ).from_buffer_copy(raw)
+                client_windows = [int(value) for value in values]
+            elif actual_type != ATOM_NONE:
+                LOGGER.debug("root _NET_CLIENT_LIST has an unsupported format")
+        return sorted(set(client_windows) | set(self._query_tree_ids()))
+
+    def _subscribe(self, window: int) -> None:
+        self._last_x_error = None
+        self.lib.XSelectInput(
+            self.display,
+            Window(window),
+            PROPERTY_CHANGE_MASK | STRUCTURE_NOTIFY_MASK,
+        )
+        self._sync_checked(f"subscribing to window 0x{window:x}")
+
+    def window_info(
+        self, window: int, title_atom: int | None = None
+    ) -> WindowInfo | None:
+        class_property = self._get_property(window, self.wm_class)
+        if class_property is None or class_property[1] != 8:
+            return None
+        class_parts = class_property[2].rstrip(b"\0").split(b"\0")
+        if len(class_parts) < 2:
+            return None
+        instance = class_parts[0].decode("utf-8", errors="replace")
+        window_class = class_parts[1].decode("utf-8", errors="replace")
+        if title_atom == self.wm_name:
+            title = self._get_text(window, self.wm_name)
+        elif title_atom == self.net_wm_name:
+            title = self._get_text(window, self.net_wm_name)
+        else:
+            title = self._get_text(window, self.net_wm_name)
+            if title is None:
+                title = self._get_text(window, self.wm_name)
+        return WindowInfo(window, instance, window_class, title)
+
+    def set_net_title(self, window: int, title: str) -> None:
+        data = title.encode("utf-8")
+        buffer_type = ctypes.c_ubyte * max(len(data), 1)
+        buffer = buffer_type()
+        if data:
+            buffer[: len(data)] = data
+        self._last_x_error = None
+        self.lib.XChangeProperty(
+            self.display,
+            Window(window),
+            Atom(self.net_wm_name),
+            Atom(self.utf8_string),
+            8,
+            PROP_MODE_REPLACE,
+            buffer,
+            len(data),
+        )
+        self.lib.XFlush(self.display)
+        self._sync_checked(f"rewriting window 0x{window:x}")
+        key = (window, self.net_wm_name)
+        self._ignored_property_events[key] = (
+            self._ignored_property_events.get(key, 0) + 1
+        )
+
+    def delete_net_title(self, window: int) -> None:
+        self._last_x_error = None
+        self.lib.XDeleteProperty(
+            self.display,
+            Window(window),
+            Atom(self.net_wm_name),
+        )
+        self.lib.XFlush(self.display)
+        self._sync_checked(f"restoring window 0x{window:x}")
+
+    def restore_owned_titles(self) -> None:
+        """Restore titles changed by this connection when they are still owned."""
+
+        for window, owned in list(self._owned_titles.items()):
+            try:
+                current = self._get_text(window, self.net_wm_name)
+                if current != owned.cleaned_title:
+                    continue
+                if owned.original_net_title is None:
+                    self.delete_net_title(window)
+                else:
+                    self.set_net_title(window, owned.restore_title)
+            except (X11Unavailable, OSError) as exc:
+                LOGGER.debug(
+                    "window 0x%x disappeared during title restoration: %s",
+                    window,
+                    exc,
+                )
+        self._owned_titles.clear()
+
+    def refresh(self, windows: set[int]) -> set[int]:
+        current = set(self._get_window_ids())
+        for window in current - windows:
+            try:
+                self._subscribe(window)
+                info = self.window_info(window)
+                if info and info.is_dolphin:
+                    self.rewrite_if_needed(info)
+            except X11Unavailable as exc:
+                LOGGER.debug("window 0x%x disappeared during refresh: %s", window, exc)
+        return current
+
+    def rewrite_if_needed(self, info: WindowInfo) -> CleanResult | None:
+        if not info.is_dolphin or info.title is None:
+            return None
+        return self._apply_title(info)
+
+    def _apply_title(
+        self, info: WindowInfo, source_atom: int | None = None
+    ) -> CleanResult | None:
+        if not info.is_dolphin or info.title is None:
+            return None
+        cleaned = clean_title(info.title)
+        current_net_title = self._get_text(info.window, self.net_wm_name)
+        owned = self._owned_titles.get(info.window)
+
+        # WM_NAME can be the only property an application updates. Do not
+        # replace an unrelated EWMH title, but do follow a title this service
+        # already owns or create one when the EWMH property is absent.
+        if source_atom == self.wm_name and owned is None:
+            if current_net_title is not None or cleaned == info.title:
+                return None
+        if source_atom == self.net_wm_name and cleaned == info.title:
+            self._owned_titles.pop(info.window, None)
+            return None
+        if current_net_title == cleaned:
+            if owned is not None and source_atom == self.wm_name:
+                owned.restore_title = info.title
+            return None
+
+        if owned is None:
+            owned = OwnedTitle(current_net_title, info.title, cleaned)
+            self._owned_titles[info.window] = owned
+        else:
+            owned.restore_title = info.title
+            owned.cleaned_title = cleaned
+        self.set_net_title(info.window, cleaned)
+        return CleanResult(info.window, info.title, cleaned)
+
+    def matching_windows(self) -> list[WindowInfo]:
+        result: list[WindowInfo] = []
+        windows = self._get_window_ids()
+        for window in windows:
+            try:
+                info = self.window_info(window)
+            except X11Unavailable:
+                continue
+            if info and info.is_dolphin:
+                result.append(info)
+        return result
+
+    def run(
+        self,
+        stop_requested: Callable[[], bool],
+        on_cleaned: Callable[[CleanResult], None] | None = None,
+    ) -> None:
+        windows: set[int] = set()
+        windows = self.refresh(windows)
+        while not stop_requested():
+            if self.lib.XPending(self.display) == 0:
+                try:
+                    select.select([self.fileno], [], [], 1.0)
+                except InterruptedError:
+                    continue
+                if stop_requested():
+                    break
+            while self.lib.XPending(self.display) > 0:
+                event_buffer = (ctypes.c_ubyte * EVENT_BUFFER_SIZE)()
+                self.lib.XNextEvent(self.display, ctypes.byref(event_buffer))
+                event_type = ctypes.cast(
+                    ctypes.byref(event_buffer), ctypes.POINTER(ctypes.c_int)
+                ).contents.value
+                if event_type == PROPERTY_NOTIFY:
+                    event = XPropertyEvent.from_buffer(event_buffer)
+                    if event.atom in (self.net_wm_name, self.wm_name, self.wm_class):
+                        key = (int(event.window), int(event.atom))
+                        ignored = self._ignored_property_events.get(key, 0)
+                        if ignored:
+                            if ignored == 1:
+                                del self._ignored_property_events[key]
+                            else:
+                                self._ignored_property_events[key] = ignored - 1
+                            continue
+                        try:
+                            info = self.window_info(
+                                int(event.window), int(event.atom)
+                            )
+                            if info:
+                                cleaned = self._apply_title(
+                                    info, int(event.atom)
+                                )
+                                if cleaned and on_cleaned:
+                                    on_cleaned(cleaned)
+                        except X11Unavailable as exc:
+                            LOGGER.debug(
+                                "window 0x%x disappeared during property event: %s",
+                                int(event.window),
+                                exc,
+                            )
+                elif event_type in (
+                    CREATE_NOTIFY,
+                    DESTROY_NOTIFY,
+                    UNMAP_NOTIFY,
+                    MAP_NOTIFY,
+                    REPARENT_NOTIFY,
+                ):
+                    windows = self.refresh(windows)
+                    self._owned_titles = {
+                        window: owned
+                        for window, owned in self._owned_titles.items()
+                        if window in windows
+                    }
+            windows = self.refresh(windows)

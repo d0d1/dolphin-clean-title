@@ -1,9 +1,9 @@
 # Agent instructions
 
-This repository is intentionally documentation-only until an implementation
-decision is made. Avoid unnecessary dependencies and speculative scaffolding:
-do not create implementation, test, tooling, or CI directories or placeholder
-files merely to anticipate future work.
+This repository contains the implementation, user-local packaging, tests, and
+public documentation. Keep the project small and avoid speculative
+scaffolding: add structure only when it supports a real, researched feature or
+verification workflow.
 
 ## Authoritative project policy
 
@@ -46,6 +46,8 @@ implementing the change.
   diagnostics under `.artifacts/`; neither belongs in tracked documentation.
 - Design debugging with actionable logs, environment and version diagnostics,
   reproducible checks, and useful failure artifacts once implementation exists.
+- Avoid speculative scaffolding and unnecessary dependencies. Prefer the
+  project's local or isolated environment when one is appropriate.
 - Use Conventional Commits 1.0.0 and keep public tracked documentation free
   of internal prose, prompts, conversation history, raw research notes, and
   temporary reasoning.
