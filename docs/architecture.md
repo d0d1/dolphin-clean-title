@@ -28,7 +28,6 @@ The runtime must have no telemetry, analytics, network access, accounts,
 payments, subscriptions, or external service dependencies. It must operate as
 a local standalone package and avoid introducing an online control plane.
 
-Implementation technologies and dependencies remain intentionally undecided in
-this foundation pass. Future choices must be researched and documented under
-the policy in [Tooling](tooling.md), then reflected in the structure without
-weakening these boundaries.
+Implementation technologies and dependencies must be researched and documented
+under the policy in [Tooling](tooling.md) before selection, then reflected in
+the structure without weakening these boundaries.

@@ -15,4 +15,5 @@ check is explicitly justified.
 Once implementation exists, verification should cover the title suffix rules,
 titles that must remain unchanged, window-manager or compositor visibility,
 update-resilient integration boundaries, packaging behavior, and runtime
-constraints. The exact test layout and tools remain intentionally undecided.
+constraints. Define the exact test layout and tools as part of the researched
+stack decision and document them with the implementation.

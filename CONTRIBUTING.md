@@ -18,6 +18,14 @@ for example `docs: clarify title handling` or `fix: preserve an existing title`.
 Use the body and footers when they add useful context, and describe breaking
 changes with the Conventional Commits `!` marker or `BREAKING CHANGE:` footer.
 
+## Badge policy
+
+Use three to six badges when each one represents real current project
+information or materially improves presentation; use fewer or none when that
+standard cannot be met. Do not add placeholder badges, CI badges without CI,
+release or package badges without corresponding releases or packages, or
+technology badges before the implementation stack is selected.
+
 ## Documentation hygiene
 
 Public tracked documentation must contain no internal prose, prompts,

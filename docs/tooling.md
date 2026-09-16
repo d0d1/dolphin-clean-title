@@ -1,7 +1,6 @@
 # Tooling
 
-This document governs future technology and dependency decisions. It does not
-select an implementation stack.
+Apply this policy before selecting or changing the implementation stack.
 
 ## Research before selection
 
@@ -21,8 +20,6 @@ Prefer project-local or isolated environments over global installation. Agents
 may add well-researched dependencies when the implementation requires them and
 the decision is documented. Keep dependency resolution reproducible and avoid
 untracked machine state as a requirement for development or verification.
-
-No dependencies are added in this documentation-only foundation pass.
 
 ## Research records
 

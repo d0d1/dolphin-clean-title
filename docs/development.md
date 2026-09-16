@@ -21,6 +21,14 @@ necessary, research CI alternatives first, compare their operational and
 maintenance implications, and document the decision before configuration is
 added. Do not create CI configuration as part of preparatory work.
 
+## GitHub topics
+
+Choose five to ten GitHub topics that accurately describe the project as it
+currently exists. Use fewer when five strongly relevant topics cannot be
+identified. Do not add implementation-language or framework topics before
+those technologies are selected, and do not add generic topics merely to
+reach a count.
+
 ## Change discipline
 
 Keep implementation, packaging, documentation, and diagnostics as separate
@@ -28,6 +36,6 @@ concerns. Verify changes with deterministic checks appropriate to the known
 implementation stack. Record durable conclusions in tracked documentation and
 keep temporary research under the ignored `.agent/` directory.
 
-The implementation stack is not selected yet. Until it is selected through the
-research process in [Tooling](tooling.md), do not install dependencies or
-scaffold implementation, test, or tooling directories.
+Do not install dependencies or scaffold implementation, test, or tooling
+directories without a documented need and a selected, researched
+implementation stack.
