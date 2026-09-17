@@ -1,94 +1,76 @@
 # Architecture
 
-This document defines the durable boundaries of the implementation. The
-project is a standalone Linux package that removes one trailing `— Dolphin` or
-`- Dolphin` suffix from Dolphin window titles without modifying Dolphin or
-depending on a particular taskbar.
+This document defines the durable implementation boundaries for
+dolphin-clean-title.
 
-## Support boundary and integration
+## Runtime boundary
 
-The current implementation targets X11-compatible desktop sessions with a
-usable `DISPLAY` and the distro-provided `libX11.so.6`. The repository's live
-integration evidence is an Xwayland display with controlled X11 test windows;
-native Xorg sessions and a real Dolphin process have not been verified here.
-Native Wayland sessions are not supported: the standard Wayland application
-protocol does not provide an external client with a way to rewrite another
-client's title. The installer and service reject an unsupported session before
-activation.
+The project has two cooperating user-local pieces:
 
-The service observes the X11 root window and subscribes to window lifecycle
-and title-property changes. It identifies a Dolphin window only when its
-`WM_CLASS` instance or class is exactly `dolphin`, case-insensitively. For a
-matching window, it reads `_NET_WM_NAME` (falling back to `WM_NAME`) and writes
-the cleaned value to `_NET_WM_NAME`. That is the EWMH-facing title consumed by
-window managers and compositors that implement the standard. New windows,
-navigation-driven title changes, and repeated updates are handled by the same
-event loop. The service changes no Dolphin or taskbar files.
+1. A Python standard-library service connects to the X11 protocol through the
+   distro's `libX11.so.6`, observes Dolphin windows and title-property changes,
+   and publishes cleaned `_NET_WM_NAME` values.
+2. A managed `~/.local/bin/dolphin` wrapper selects Qt's XCB backend for
+   Dolphin GUI processes. Ordinary launches execute `/usr/bin/dolphin`
+   directly. A wrapper process inside the vendor `plasma-dolphin.service`
+   cgroup starts `/usr/bin/dolphin` in a uniquely named transient user-systemd
+   service so the GUI process does not inherit the daemon's short-lived
+   activation cgroup.
 
-Installation is user-local. A versioned release directory and an atomic
-`current` link keep ordinary updates from overwriting the active service, and
-an XDG autostart entry starts the service while Dolphin itself continues to be
-launched normally.
+The vendor `plasma-dolphin.service` and its FileManager1 D-Bus service file
+remain untouched. The native `/usr/bin/dolphin --daemon` therefore continues to
+use the desktop's native Wayland backend. The wrapper changes only the GUI
+children that it launches.
 
-## Existing solutions and the Wayland decision
+Transient GUI units use `--user`, `--no-block`, `--collect`, and
+`QT_QPA_PLATFORM=xcb`. Their commands use the absolute `/usr/bin/dolphin`
+path, preventing wrapper recursion. Unit names combine a high-resolution time
+value and the wrapper PID to avoid collisions.
 
-The X11 service remains justified as a focused component for this exact
-behavior. The current upstream [Devilspie2 documentation](https://github.com/kba/devilspie2/blob/master/README)
-describes Lua scripts running on window open and close, while its
-[event setup](https://github.com/kba/devilspie2/blob/master/src/devilspie2.c)
-and [script registration](https://github.com/kba/devilspie2/blob/master/src/script.c)
-provide window-name getters but no title setter or title-change handler. A
-window-open rule or a one-shot property command therefore cannot reliably
-maintain a suffix-free title through navigation. This service instead listens
-for the relevant X11 property events and publishes the cleaned EWMH value.
+## Support boundary
 
-Native Wayland is deliberately not implemented yet. The current
-[wl-relabel proxy](https://github.com/valentin-morice/wl-relabel/blob/main/src/proxy.rs)
-is the closest researched architecture: it proxies a client connection and
-handles `xdg_toplevel.set_title`, but its current
-[tracker](https://github.com/valentin-morice/wl-relabel/blob/main/src/track.rs)
-withholds identity messages until mapping and applies rule actions at that
-point. Its own tests document that later title changes pass through when not
-statically rewritten, and its [documented workflow](https://github.com/valentin-morice/wl-relabel/blob/main/README.md)
-requires wrapping every launcher. That is not sufficient for a dynamic suffix
-transformation or for launching Dolphin normally.
+The cleaner operates at the X11/XWayland boundary. Supported environments are:
 
-If native Wayland support is pursued, the smallest credible path is to extend
-or adopt the protocol-transport approach used by wl-relabel and its
-`wl-proxy` dependency, not to create an unrelated socket proxy. The extension
-must transform every Dolphin `xdg_toplevel.set_title` request, preserve the
-other protocols Dolphin uses, and account for the generated-protocol boundary
-in wl-proxy: an interface not included in the proxy's generated set can be
-dropped before an application handler sees it. The implementation must first
-establish Dolphin's actual native-Wayland app ID across the supported KDE/Qt
-matrix, then provide a verified launch integration that does not require users
-to edit third-party desktop or taskbar files. Native Wayland support is not
-claimed until those conditions are tested end to end.
+- native X11/Xorg-compatible sessions with a usable `DISPLAY`; and
+- Wayland desktops with a usable XWayland `DISPLAY`, a user systemd manager,
+  `systemd-run --user`, `/usr/bin/dolphin`, and `~/.local/bin` before `/usr/bin`
+  in the relevant launch `PATH`.
+
+Native Wayland Dolphin windows are explicitly outside the cleaner's reach.
+The project does not proxy the native Wayland protocol and does not pretend to
+rewrite a Wayland client's `xdg_toplevel.set_title` requests. On a Wayland
+desktop, the supported workflow is to launch Dolphin GUI windows through the
+managed XCB wrapper while leaving the native FileManager1 daemon alone.
+
+The installer rejects sessions without a usable X11/XWayland display and
+rejects launch environments where the managed wrapper cannot precede
+`/usr/bin`. It also requires `systemd-run` for the FileManager1 child path.
+
+## Title-cleaning behavior
+
+The title rule is pure logic: remove exactly one trailing `— Dolphin` or
+`- Dolphin`, including one optional separating space immediately before the
+suffix. Other case, punctuation, whitespace, and embedded occurrences remain
+unchanged.
+
+The X11 adapter identifies a window only when its `WM_CLASS` instance or class
+is exactly `dolphin`, case-insensitively. It reads `_NET_WM_NAME`, falling back
+to `WM_NAME`, subscribes to new-window and property events, and rewrites the
+EWMH title seen by window managers and compositors that honor the standard.
+It tracks titles it changed so a clean shutdown can restore the last title it
+still owns. It does not edit Dolphin, Qt, a desktop entry, a taskbar, or a
+desktop shell.
 
 ## Structural principles
 
-Require professional structural quality from the beginning.
-
-Require clean separation of concerns. Give each component a clear
-responsibility: title rules are pure logic; session validation is separate
-from X11 access; the X11 adapter owns window events and EWMH properties; the
-application owns lifecycle and diagnostics; packaging owns installation and
-removal; and tests exercise each boundary.
+Require professional structural quality from the beginning. Keep title rules,
+session validation, X11 access, application lifecycle, wrapper generation,
+installation, diagnostics, and tests as distinct responsibilities.
 
 Avoid monoliths, circular dependencies, dumping-ground modules, inappropriate
-coupling, and unjustified abstractions. Every abstraction should earn its
-place by making a real boundary or behavior easier to verify and maintain.
-
-The implementation must not modify Dolphin, patch Dolphin files, or require a
-specific taskbar. Integration must target the appropriate window-system
-boundary so the cleaned title is exposed to the window manager or compositor.
-The design must tolerate ordinary updates to Dolphin and taskbars.
-
-## Runtime constraints
+coupling, and unjustified abstractions. Every abstraction must make a real
+boundary or behavior easier to verify and maintain.
 
 The runtime must have no telemetry, analytics, network access, accounts,
-payments, subscriptions, or external service dependencies. It must operate as
-a local standalone package and avoid introducing an online control plane.
-
-Changes to the stack or runtime boundary must follow the research and version
-policy in [Tooling](tooling.md) without weakening these boundaries.
+payments, subscriptions, or external service dependencies. It must remain a
+local standalone package and tolerate ordinary Dolphin and taskbar updates.

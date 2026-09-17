@@ -90,6 +90,52 @@ def _error(message: str) -> int:
     return 2
 
 
+def _dolphin_processes() -> list[tuple[int, str, str]]:
+    """Return local Dolphin processes and the backend visible in their env."""
+
+    result: list[tuple[int, str, str]] = []
+    proc_root = Path("/proc")
+    try:
+        entries = list(proc_root.iterdir())
+    except OSError:
+        return result
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        try:
+            raw_cmdline = (entry / "cmdline").read_bytes()
+            command_parts = [part for part in raw_cmdline.split(b"\0") if part]
+            if not command_parts:
+                continue
+            executable = command_parts[0].rsplit(b"/", 1)[-1].lower()
+            if executable != b"dolphin":
+                continue
+            arguments = " ".join(
+                part.decode("utf-8", errors="replace")
+                for part in command_parts
+            )
+            environment = {}
+            for raw_line in (entry / "environ").read_bytes().split(b"\0"):
+                if b"=" in raw_line:
+                    key, value = raw_line.split(b"=", 1)
+                    environment[key.decode(errors="replace")] = value.decode(
+                        errors="replace"
+                    )
+        except OSError:
+            continue
+        qt_platform = environment.get("QT_QPA_PLATFORM", "")
+        if qt_platform == "xcb":
+            backend = "X11/XWayland candidate (QT_QPA_PLATFORM=xcb)"
+        elif qt_platform == "wayland":
+            backend = "native Wayland (QT_QPA_PLATFORM=wayland)"
+        elif environment.get("WAYLAND_DISPLAY"):
+            backend = "session-selected Wayland candidate; not X11-visible"
+        else:
+            backend = "backend not exposed by process environment"
+        result.append((int(entry.name), arguments, backend))
+    return sorted(result)
+
+
 def check_environment() -> int:
     try:
         info = validate_x11_session()
@@ -97,7 +143,7 @@ def check_environment() -> int:
             pass
     except (EnvironmentError, X11Unavailable) as exc:
         return _error(str(exc))
-    print(f"X11 environment OK ({info.display})")
+    print(f"X11/XWayland environment OK ({info.display}; {info.boundary})")
     return 0
 
 
@@ -109,8 +155,18 @@ def diagnose() -> int:
     print(f"XDG_SESSION_TYPE: {info.session_type or '<unset>'}")
     print(f"DISPLAY: {info.display or '<unset>'}")
     print(f"WAYLAND_DISPLAY: {info.wayland_display or '<unset>'}")
-    print("supported session: X11 only")
+    print(f"integration boundary: {info.boundary}")
+    print(
+        "cleaner visibility: X11/XWayland Dolphin windows; "
+        "native-Wayland Dolphin windows are outside the cleaner"
+    )
     print(f"libX11: {find_x11_library() or 'not found'}")
+    print("Dolphin processes:")
+    processes = _dolphin_processes()
+    if not processes:
+        print("  none visible in /proc")
+    for pid, arguments, backend in processes:
+        print(f"  pid={pid} backend={backend} command={arguments!r}")
 
     try:
         validated = validate_x11_session()
@@ -181,9 +237,11 @@ def run_foreground(verbose: bool, path: str | None) -> int:
     try:
         info = validate_x11_session()
         LOGGER.info(
-            "session type=%s display=%s; supported integration is X11",
+            "session type=%s display=%s boundary=%s; monitoring X11/Xwayland "
+            "windows only",
             info.session_type or "<unset>",
             info.display,
+            info.boundary,
         )
         with InstanceLock():
             with X11Connection(info.display) as connection:

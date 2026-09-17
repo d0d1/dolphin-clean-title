@@ -42,6 +42,15 @@ development or verification.
   specification](https://specifications.freedesktop.org/wm-spec/latest/ar01s05.html).
 - User-session persistence uses an XDG autostart desktop entry following the
   [Desktop Application Autostart Specification](https://specifications.freedesktop.org/autostart/latest/).
+- FileManager1 GUI-child lifetime management uses the distro-provided
+  `systemd-run --user` command and user systemd manager. The implementation
+  uses the locally verified options `--user`, `--unit`, `--collect`,
+  `--no-block`, and `--setenv=QT_QPA_PLATFORM=xcb`; it does not pin a systemd
+  package version because these are stable command-line features of the
+  supported user-systemd interface. Installation inspects the manager with
+  `systemctl --user show-environment` and fails clearly when the manager lacks
+  the required `PATH` ordering or `DISPLAY`, or when `systemd-run` is
+  unavailable.
 - The test suite uses Python's standard `unittest` module and a live X11
   integration test. No test framework was added before the implementation
   stack was known.
@@ -66,26 +75,26 @@ were reviewed as the native Wayland reference. Its current manifest declares
 all-protocol support. Its tracker applies title actions when a surface maps;
 its late-title test explicitly verifies that an unrewritten later title is
 passed through. Its [README](https://github.com/valentin-morice/wl-relabel/blob/main/README.md)
-also requires wrapping each launcher. These facts make it a strong starting
-point for a future proxy implementation, but not a dependency for the current
-X11-only product: it does not yet provide the required per-update suffix
-transform or the required normal-launch workflow.
+also requires wrapping each launcher. These facts make it a useful reference
+for native Wayland research, but it is not a dependency for this product: the
+implemented Wayland-desktop workflow uses XWayland GUI launches and does not
+proxy native Wayland title requests.
 
 The [official xdg-shell protocol definition](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/stable/xdg-shell/xdg-shell.xml)
 defines `xdg_toplevel.set_title` as the metadata used to identify a surface in
 a task bar or window list. A native implementation must intercept that client
 request before forwarding it to the compositor. The [wl-proxy documentation](https://docs.rs/wl-proxy)
 states that its protocol handlers are generated and that an unsupported
-protocol requires adding its XML and regenerating the vendored proxy. This is
-why a future implementation must inventory the protocols used by Dolphin and
-test pass-through behavior, rather than treating an `all-protocols` feature as
-an unlimited compatibility guarantee. No Wayland stack has been selected for
-this repository until the full proxy and launch integration can be verified.
+protocol requires adding its XML and regenerating the vendored proxy. This
+remains relevant only if native Wayland proxying is reconsidered; it is not
+part of the current implementation or support claim.
 
 Because the runtime has no third-party dependencies, a virtual environment is
 not required for the current checkout. If future development adds packages,
 use a project-local or otherwise isolated environment and document the exact
-versions and authoritative sources before installation.
+versions and authoritative sources before installation. The installed shell
+wrapper uses only POSIX shell utilities and absolute `/usr/bin/dolphin` and
+does not add a runtime package dependency.
 
 ## Research records
 

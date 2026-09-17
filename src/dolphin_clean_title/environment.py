@@ -17,6 +17,18 @@ class SessionInfo:
     display: str
     wayland_display: str
 
+    @property
+    def boundary(self) -> str:
+        """Describe the supported window-system boundary for diagnostics."""
+
+        if self.session_type == "wayland":
+            return "Wayland desktop with XWayland" if self.display else "native Wayland"
+        if self.session_type == "x11":
+            return "native X11/Xorg-compatible session"
+        if self.display:
+            return "X11-compatible display with unknown session type"
+        return "unknown window-system boundary"
+
 
 def session_info(env: Mapping[str, str] | None = None) -> SessionInfo:
     values = os.environ if env is None else env
@@ -28,21 +40,27 @@ def session_info(env: Mapping[str, str] | None = None) -> SessionInfo:
 
 
 def validate_x11_session(env: Mapping[str, str] | None = None) -> SessionInfo:
-    """Validate that the process is running in a supported X11 session."""
+    """Validate that an X11-compatible display is available.
+
+    A Wayland desktop is supported when it exposes an Xwayland ``DISPLAY``.
+    The cleaner itself still operates only on X11/Xwayland windows; native
+    Wayland Dolphin windows remain outside its reach.
+    """
 
     info = session_info(env)
-    if info.session_type and info.session_type != "x11":
+    if info.session_type not in ("", "x11", "wayland"):
         raise EnvironmentError(
             "unsupported session type "
-            f"{info.session_type!r}; this release supports X11 sessions only"
+            f"{info.session_type!r}; supported sessions are X11 or Wayland "
+            "with an accessible Xwayland DISPLAY"
         )
-    if not info.session_type and info.wayland_display:
+    if not info.display and info.session_type == "wayland":
         raise EnvironmentError(
-            "a Wayland display was detected but XDG_SESSION_TYPE is unset; "
-            "this release supports X11 sessions only"
+            "Wayland is supported only when Xwayland provides DISPLAY; "
+            "DISPLAY is not set"
         )
     if not info.display:
         raise EnvironmentError(
-            "DISPLAY is not set; start this program from an X11 desktop session"
+            "DISPLAY is not set; an X11/Xwayland display is required"
         )
     return info

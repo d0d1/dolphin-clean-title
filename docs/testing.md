@@ -20,20 +20,33 @@ check is explicitly justified.
 
 The current suite uses Python's standard `unittest` module and is run with
 `make check`. It covers the title suffix rules, window-system visibility,
-packaging behavior, lifecycle safety, and runtime constraints:
+packaging behavior, lifecycle safety, wrapper construction, and runtime
+constraints:
 
 - Pure title-rule tests verify exact matching, one-suffix removal, and
   unchanged near misses.
 - Environment and lifecycle tests verify supported-session detection,
   single-instance locking, stale PID handling, and clean shutdown.
 - Packaging tests exercise user-local installation, repeated installation,
-  managed-file safety, automatic service restart, and uninstall cleanup in
-  temporary XDG directories.
+  bounded release retention, managed-file safety for both project launchers,
+  current-session and user-manager PATH validation, automatic service restart,
+  rollback after activation failure, Wayland-with-XWayland installation, and
+  uninstall cleanup in temporary XDG directories.
+- Wrapper construction tests verify exact `/usr/bin/dolphin` execution,
+  cgroup-context detection, transient `systemd-run` options, collision-safe
+  unit naming, shell syntax, and argument-preserving quoting.
 - The live X11 integration test creates controlled X11 windows, changes their
   titles, and verifies that matching Dolphin windows are rewritten while other
   windows are not. It also verifies subsequent title changes and EWMH-visible
   results. It is skipped when no X11 display is available; a skipped live test
-  is an environment limitation, not evidence of Wayland support.
+  is an environment limitation, not evidence of native Wayland support.
+
+The real-machine release verification additionally exercises the installed
+wrapper through terminal, desktop-entry, directory-opener, and FileManager1
+launches. It verifies XWayland identity, transient-unit separation and
+collection, dynamic title cleanup, repeated installation, `--no-start`,
+uninstall restoration, and the shell command-cache case. These checks require
+the actual graphical session and are not silently substituted by unit tests.
 
 Every automated failure must retain the command, environment boundary, and
 captured service output needed for diagnosis. Routine user testing is not a
@@ -48,6 +61,6 @@ windows with Xlib. In the verified environment that display is provided by
 Xwayland; the test subprocess sets `XDG_SESSION_TYPE=x11` because it is testing
 the X11 protocol path, not claiming that the surrounding desktop is a native
 X11 session. The suite therefore demonstrates the title/property mechanism on
-an X11-compatible server, but does not verify native Xorg behavior, a real
-Dolphin build, or native Wayland behavior. Native Wayland has no implementation
-or integration test in the current product.
+an X11-compatible server, while the real-machine checks demonstrate the
+managed XCB launch path on GNOME Wayland. Native Xorg behavior and native
+Wayland title rewriting remain outside the verified claim.

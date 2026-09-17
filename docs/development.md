@@ -23,10 +23,16 @@ usable `DISPLAY`; pure unit tests remain useful without it.
 
 Use `./install.sh` to install the current checkout for the current user,
 `./install.sh --no-start` when only the files should be activated, and
-`./uninstall.sh` to stop the service and remove only files managed by this
-project. `--no-start` stops an older running instance and leaves the service
-stopped. `~/.local/bin/dolphin-clean-title --diagnose` reports the local
-compatibility boundary and matching windows. Keep temporary research in
+`./uninstall.sh` to stop the service, collect project-owned transient GUI
+units, and remove only files managed by this project. Installation also
+manages `~/.local/bin/dolphin`, which selects XCB
+for ordinary launches and uses transient user-systemd units for FileManager1
+GUI children. It never creates a persistent override for the vendor Dolphin
+unit. `--no-start` stops an older running instance and leaves the cleaner
+service stopped. Successful updates retain the three most recent staged
+releases. `~/.local/bin/dolphin-clean-title --diagnose` reports the
+local compatibility boundary, Dolphin process hints, and matching windows.
+Keep temporary research in
 `.agent/research/` and generated logs or dumps in `.artifacts/`.
 
 ## CI and hosted infrastructure

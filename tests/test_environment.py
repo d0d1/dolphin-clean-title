@@ -8,12 +8,21 @@ class EnvironmentTests(unittest.TestCase):
         with self.assertRaisesRegex(EnvironmentError, "DISPLAY is not set"):
             validate_x11_session({"XDG_SESSION_TYPE": "x11"})
 
-    def test_wayland_is_rejected(self):
-        with self.assertRaisesRegex(EnvironmentError, "supports X11 sessions only"):
+    def test_wayland_with_xwayland_is_accepted(self):
+        info = validate_x11_session(
+            {
+                "XDG_SESSION_TYPE": "wayland",
+                "DISPLAY": ":0",
+                "WAYLAND_DISPLAY": "wayland-0",
+            }
+        )
+        self.assertEqual(info.boundary, "Wayland desktop with XWayland")
+
+    def test_native_wayland_without_xwayland_is_rejected(self):
+        with self.assertRaisesRegex(EnvironmentError, "Xwayland.*DISPLAY"):
             validate_x11_session(
                 {
                     "XDG_SESSION_TYPE": "wayland",
-                    "DISPLAY": ":0",
                     "WAYLAND_DISPLAY": "wayland-0",
                 }
             )

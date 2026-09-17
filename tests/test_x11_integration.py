@@ -241,8 +241,21 @@ class X11IntegrationTests(unittest.TestCase):
             env["XDG_STATE_HOME"] = str(Path(state) / "state")
             env["XDG_SESSION_TYPE"] = "x11"
             env.pop("WAYLAND_DISPLAY", None)
+            env["PATH"] = os.pathsep.join(
+                [str(Path(env["HOME"]) / ".local" / "bin"), "/usr/bin", "/bin"]
+            )
             env["PYTHONDONTWRITEBYTECODE"] = "1"
             Path(env["HOME"]).mkdir()
+            manager_stub = Path(env["HOME"]) / ".local" / "bin" / "systemctl"
+            manager_stub.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            manager_stub.write_text(
+                "#!/bin/sh\n"
+                "if [ \"$1\" = \"--user\" ] && [ \"$2\" = \"show-environment\" ]; then\n"
+                "    printf 'HOME=%s\\nPATH=%s\\nDISPLAY=%s\\n' \"$HOME\" \"$PATH\" \"$DISPLAY\"\n"
+                "fi\n",
+                encoding="utf-8",
+            )
+            manager_stub.chmod(0o755)
             installed = subprocess.run(
                 [str(ROOT / "install.sh")],
                 cwd=ROOT,

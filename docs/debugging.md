@@ -13,9 +13,32 @@ next useful check, and avoid requiring a user to infer hidden state.
 The service provides actionable file logging, `--verbose` foreground output,
 `--check` environment validation, and `--diagnose` inspection of the session,
 Python version, libX11 availability, X11 connectivity, X-server kind/vendor
-and protocol version, and matching windows.
+and protocol version, Dolphin processes, and matching windows.
 The default log is under the XDG state directory; use `--log-file` to place a
 diagnostic log under `.artifacts/` during development.
+
+The managed Dolphin wrapper uses the process cgroup to distinguish ordinary
+launches from children started by `plasma-dolphin.service`. For a FileManager1
+failure, inspect wrapper resolution and transient units with:
+
+```sh
+type -a dolphin
+printf '%s\n' "$PATH"
+systemctl --user show-environment | rg '^(HOME|PATH|DISPLAY|XAUTHORITY|WAYLAND_DISPLAY|XDG_SESSION_TYPE)='
+systemctl --user list-units --all 'dolphin-clean-title-window-*'
+systemctl --user status dolphin-clean-title-window-UNIT.service
+systemctl --user show dolphin-clean-title-window-UNIT.service \
+  -p MainPID -p ControlGroup -p ExecStart -p Environment
+```
+
+Uninstall collects only units whose names begin with
+`dolphin-clean-title-window-`; if collection times out, preserve the command
+output and inspect the remaining unit before retrying.
+
+The wrapper invokes `/usr/bin/dolphin` explicitly and sets only
+`QT_QPA_PLATFORM=xcb` in transient units. A missing `DISPLAY`, missing
+`systemd-run`, incorrect `PATH` ordering, or a failed transient-unit start is
+an actionable setup boundary rather than a title-cleaning failure.
 
 Future changes must preserve appropriate support for actionable logging,
 environment and version inspection, reproducible checks, test diagnostics,
@@ -42,8 +65,10 @@ for the session, X11 connection, window identity, property changes, and
 rewrites.
 
 If installation fails, preserve the complete command output and inspect the
-reported Python, `XDG_SESSION_TYPE`, `DISPLAY`, and libX11 values. A native
-Wayland session is an expected unsupported environment for the current
-implementation, not a service crash. An Xwayland display can exercise the X11
-protocol path, but it is not evidence of native Xorg or native Wayland support.
+reported Python, `PATH`, `XDG_SESSION_TYPE`, `DISPLAY`, `systemd-run`, and
+libX11 values. A Wayland session without `DISPLAY` is unsupported; a Wayland
+session with XWayland is supported through the managed XCB wrapper. Native
+Wayland Dolphin windows remain outside the X11 cleaner. An Xwayland display
+can exercise the X11 protocol path, but it is not evidence of native Xorg or
+native Wayland title rewriting.
 Do not infer compatibility from a skipped X11 integration test.

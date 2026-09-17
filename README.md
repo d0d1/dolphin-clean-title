@@ -1,47 +1,49 @@
 # dolphin-clean-title
 
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)
-[![Platform: Linux / X11](https://img.shields.io/badge/platform-Linux%20%2F%20X11-2ea44f.svg)](#compatibility)
+[![Platform: Linux](https://img.shields.io/badge/platform-Linux-2ea44f.svg)](#compatibility)
 [![Runtime: local-only](https://img.shields.io/badge/runtime-local--only-2ea44f.svg)](#privacy-and-external-services)
 
-A standalone Linux package that removes a trailing `— Dolphin` or `- Dolphin`
-from Dolphin window titles without modifying Dolphin or depending on a
-specific taskbar.
+A standalone Linux package that removes one trailing `— Dolphin` or `- Dolphin`
+from Dolphin window titles without modifying Dolphin or depending on a specific
+taskbar.
 
 ## What it does
 
-After installation, a small user-local background service watches X11 window
-events and Dolphin title changes. It matches only windows whose `WM_CLASS`
-instance or class is exactly `dolphin` (case-insensitively), removes one
-supported trailing suffix, and publishes the cleaned value through the EWMH
-`_NET_WM_NAME` property. Window managers and compositors that use that
-property can therefore display the cleaned title.
+The package installs a managed user-local `dolphin` wrapper and a title-cleaning
+service. Ordinary Dolphin launches continue to use the normal command, but the
+wrapper selects Qt's XCB backend so the resulting window is visible to the
+X11/XWayland title cleaner.
 
-Dolphin continues to be launched normally. The service is independent of
-Dolphin and taskbar files, so ordinary updates to either do not overwrite it.
-Installation is user-local and repeated installation activates a new staged
-copy without leaving the previous service running. `--no-start` also stops an
-older running service and leaves the newly installed service stopped.
+FileManager1 remains owned by the distro's native-Wayland
+`/usr/bin/dolphin --daemon`. When that daemon launches a GUI child, the wrapper
+recognizes the service cgroup and re-launches the child in a unique transient
+user-systemd service. This keeps the XWayland window alive after the daemon's
+activation process exits without creating an extra Home window.
+
+The cleaner matches only Dolphin windows (`WM_CLASS=dolphin`) and removes only
+one matching trailing suffix. It follows title changes while navigating and
+publishes the cleaned value through `_NET_WM_NAME`.
+
+Native Wayland Dolphin windows are deliberately outside the cleaner's reach.
+On a Wayland desktop, Dolphin is supported when an accessible XWayland display
+is available and the managed wrapper can be found before `/usr/bin` in `PATH`.
 
 ## Compatibility
 
-The current implementation targets Linux X11-compatible sessions with:
+The supported boundary is Linux with:
 
 - Python 3.10 or newer;
-- a usable `DISPLAY`; and
+- Dolphin installed as executable `/usr/bin/dolphin`;
+- a usable `DISPLAY` backed by X11 or XWayland;
+- `systemd-run --user` and a functioning user systemd manager; and
 - the distro-provided `libX11.so.6` runtime library.
 
-Native Wayland sessions are not supported. The installer detects that
-boundary and fails before activation. The service is intended for window
-managers or compositors that honor the standard EWMH title property; behavior
-outside that boundary has not been claimed or verified.
-
-The repository's live evidence has been run with Python 3.12.3 on Linux using
-an Xwayland X11 display. The integration tests exercise controlled X11 test
-windows, not a native Xorg session or a real Dolphin process. Native X11
-sessions are an intended compatibility target but remain unverified here;
-other Python versions and desktop combinations at or above the enforced
-baseline require their own verification.
+Both native X11/Xorg-compatible sessions and Wayland desktops with XWayland
+are supported by the implementation. The current real-machine end-to-end
+verification covers GNOME Wayland with XWayland. Native Xorg and other desktop
+combinations should be verified separately. A Wayland session without
+`DISPLAY` is unsupported. Native-Wayland Dolphin windows are not rewritten.
 
 ## Install
 
@@ -51,24 +53,50 @@ From a checkout, run:
 ./install.sh
 ```
 
-The installer validates the current session, copies the package into a
-versioned user-local data directory, creates an XDG autostart entry, and
-starts the service. No manual edits to Dolphin, a taskbar, or a desktop shell
-are required. Use `./install.sh --no-start` to install the files without
-starting the current session's service.
+The installer validates Python, `/usr/bin/dolphin`, the X11/XWayland display,
+the user systemd manager, `systemd-run`, and the required `PATH` ordering in
+both the current session and user manager before it writes anything. It
+installs the cleaner, the managed `~/.local/bin/dolphin` wrapper, and an XDG
+autostart entry.
+It does not edit Dolphin, its desktop entry, FileManager1,
+`plasma-dolphin.service`, Qt, GNOME Shell, or any taskbar files.
+
+The installer retains the three most recent staged releases for safe repeated
+updates and rollback recovery.
+
+Use `./install.sh --no-start` to install the files while leaving the cleaner
+stopped. The Dolphin wrapper is still installed so normal launches use the
+selected XCB path after installation.
 
 ## Use
 
-Launch Dolphin normally. The service handles new windows and title changes
-while navigating. The installed diagnostic commands are:
+After installation, launch Dolphin normally from the application launcher, a
+terminal, a directory opener, or FileManager1. The native FileManager1 daemon
+is left unchanged; GUI children created through that path are placed in
+temporary user-systemd units and cleaned up automatically when they exit.
+
+The installed diagnostics are:
 
 ```sh
 ~/.local/bin/dolphin-clean-title --check
 ~/.local/bin/dolphin-clean-title --diagnose
 ```
 
-The service log is stored under the XDG state directory. For a foreground
-diagnostic run, use `--verbose --log-file .artifacts/dolphin-clean-title.log`.
+The cleaner log is stored under the XDG state directory. For a foreground
+diagnostic run, use:
+
+```sh
+~/.local/bin/dolphin-clean-title --verbose \
+  --log-file .artifacts/dolphin-clean-title.log
+```
+
+If a shell resolved `dolphin` before installation, refresh that shell's
+command cache before testing the wrapper:
+
+```sh
+hash -r                 # POSIX shells that support hash
+rehash                  # shells that provide rehash instead
+```
 
 ## Uninstall
 
@@ -78,27 +106,31 @@ From the same checkout, run:
 ./uninstall.sh
 ```
 
-This stops the service, restores title properties it still owns on open
-windows, and removes the project's XDG autostart entry, wrapper, and staged
-data. It preserves files that are not marked as managed by this project,
-restoring Dolphin's original title behavior.
+Uninstall stops the cleaner and any project-owned transient GUI units, removes
+only the project's managed wrapper and data, and leaves distro-owned Dolphin
+and FileManager1 files untouched. It does not remove non-managed files that
+collide with project paths.
 
 ## Troubleshooting
 
-- If installation reports that the session is unsupported, check
-  `XDG_SESSION_TYPE` and `DISPLAY`. The current implementation requires an
-  X11-compatible session; native Wayland sessions are not supported.
-- If a title is unchanged, run
-  `~/.local/bin/dolphin-clean-title --diagnose` and inspect the reported
-  matching windows. Only an exact `dolphin` `WM_CLASS` instance or class is
+- If installation reports that `DISPLAY` is unavailable, the session has no
+  usable X11/XWayland boundary. Native Wayland alone is not sufficient.
+- If installation reports a `PATH` problem, ensure `~/.local/bin` precedes
+  `/usr/bin` in the graphical session environment. Refresh already-running
+  shell command caches with `hash -r` or `rehash`.
+- If FileManager1 windows do not appear, check that the user systemd manager's
+  environment also contains the managed-wrapper directory before `/usr/bin`.
+  Inspect transient units with `systemctl --user list-units --all` while a
+  Dolphin window is open.
+- If a title is unchanged, run `~/.local/bin/dolphin-clean-title --diagnose`.
+  Only an exact case-insensitive Dolphin `WM_CLASS` instance or class is
   handled, and only the two documented suffixes are removed.
-- If the service is not active, run
-  `~/.local/bin/dolphin-clean-title --check`, then inspect the log under the
-  XDG state directory. A foreground trace can be collected with
-  `~/.local/bin/dolphin-clean-title --verbose --log-file .artifacts/dolphin-clean-title.log`.
+- If the cleaner is not active, run `~/.local/bin/dolphin-clean-title --check`
+  and inspect the XDG state log. Use the foreground command above for a local
+  trace.
 - If setup refuses to overwrite a file, preserve that file and review whether
-  it is an existing non-managed wrapper, autostart entry, or data directory.
-  The installer refuses such collisions rather than deleting user data.
+  it is an existing non-managed Dolphin wrapper, cleaner launcher, autostart
+  entry, or data directory. The installer refuses such collisions.
 
 ## Privacy and external services
 
