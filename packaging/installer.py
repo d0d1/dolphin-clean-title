@@ -225,6 +225,12 @@ def _desktop_exec(path: Path) -> str:
     return f'"{escaped}"'
 
 
+def _desktop_try_exec(path: Path) -> str:
+    """Render the executable path required by the desktop TryExec key."""
+
+    return str(path)
+
+
 def _service_wrapper_content(root: Path, python_executable: str) -> str:
     from shlex import quote
 
@@ -282,7 +288,7 @@ Type=Application
 Name=Dolphin Clean Title
 Comment=Remove the trailing Dolphin suffix from X11 Dolphin window titles
 Exec={_desktop_exec(wrapper)}
-TryExec={_desktop_exec(wrapper)}
+TryExec={_desktop_try_exec(wrapper)}
 Terminal=false
 X-Dolphin-Clean-Title-Managed=true
 """

@@ -85,7 +85,11 @@ class InstallerTests(unittest.TestCase):
                 0,
             )
             self.assertTrue(desktop.exists())
-            self.assertIn("X-Dolphin-Clean-Title-Managed=true", desktop.read_text())
+            desktop_text = desktop.read_text(encoding="utf-8")
+            self.assertIn("X-Dolphin-Clean-Title-Managed=true", desktop_text)
+            self.assertIn(f'Exec="{wrapper}"', desktop_text)
+            self.assertIn(f"TryExec={wrapper}\n", desktop_text)
+            self.assertNotIn(f'TryExec="{wrapper}"', desktop_text)
 
             uninstall = subprocess.run(
                 ["sh", str(ROOT / "uninstall.sh")],
