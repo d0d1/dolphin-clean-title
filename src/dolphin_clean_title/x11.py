@@ -140,6 +140,7 @@ class X11Connection:
         self.wm_name = self._intern("WM_NAME")
         self.wm_class = self._intern("WM_CLASS")
         self.utf8_string = self._intern("UTF8_STRING")
+        self.string_atom = self._intern("STRING")
         self.lib.XSelectInput(
             self.display,
             self.root,
@@ -341,10 +342,29 @@ class X11Connection:
         property_value = self._get_property(window, atom)
         if property_value is None:
             return None
-        _actual_type, actual_format, raw = property_value
+        actual_type, actual_format, raw = property_value
         if actual_format != 8:
             return None
-        return raw.rstrip(b"\0").decode("utf-8", errors="replace")
+        raw = raw.rstrip(b"\0")
+        if actual_type == self.utf8_string:
+            try:
+                return raw.decode("utf-8")
+            except UnicodeDecodeError:
+                LOGGER.debug(
+                    "ignoring window 0x%x property %s with invalid UTF-8",
+                    window,
+                    atom,
+                )
+                return None
+        if actual_type == self.string_atom and atom == self.wm_name:
+            return raw.decode("latin-1")
+        LOGGER.debug(
+            "ignoring window 0x%x property %s with unsupported text type %s",
+            window,
+            atom,
+            actual_type,
+        )
+        return None
 
     def _query_tree_ids(self) -> list[int]:
         root_return = Window()

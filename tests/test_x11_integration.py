@@ -98,7 +98,10 @@ class X11TestWindow:
         self.lib.XFlush(self.display)
 
     def set_wm_title(self, title: str) -> None:
-        self._change(self.wm_name, self.string_atom, title.encode())
+        self.set_wm_title_bytes(title.encode("latin-1"))
+
+    def set_wm_title_bytes(self, title: bytes) -> None:
+        self._change(self.wm_name, self.string_atom, title)
         self.lib.XFlush(self.display)
 
     def show(self) -> None:
@@ -158,7 +161,7 @@ class X11IntegrationTests(unittest.TestCase):
                 self._wait_for_title(observer, dolphin.window, "Home", daemon)
                 self._wait_for_title(observer, other.window, "Other - Dolphin", daemon)
 
-                dolphin.set_wm_title("Videos — Dolphin")
+                dolphin.set_wm_title("Videos - Dolphin")
                 self._wait_for_title(observer, dolphin.window, "Videos", daemon)
                 dolphin.set_wm_title("Music")
                 self._wait_for_title(observer, dolphin.window, "Music", daemon)
@@ -186,6 +189,60 @@ class X11IntegrationTests(unittest.TestCase):
             log = log_path.read_text(encoding="utf-8")
             self.assertIn("rewrote window", log)
             self.assertIn("connected to X11", log)
+
+    def test_latin1_wm_name_does_not_corrupt_owned_utf8_title(self):
+        with tempfile.TemporaryDirectory() as state:
+            env = os.environ.copy()
+            env["XDG_SESSION_TYPE"] = "x11"
+            env.pop("WAYLAND_DISPLAY", None)
+            env["XDG_STATE_HOME"] = state
+            env["PYTHONPATH"] = str(ROOT / "src")
+            env["PYTHONDONTWRITEBYTECODE"] = "1"
+            daemon = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "dolphin_clean_title",
+                    "--foreground",
+                    "--log-file",
+                    str(Path(state) / "service.log"),
+                ],
+                cwd=ROOT,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            dolphin = X11TestWindow(env["DISPLAY"], "dolphin", "Dolphin")
+            observer = X11Connection(env["DISPLAY"])
+            try:
+                dolphin.set_title("Películas — Dolphin")
+                dolphin.show()
+                self._wait_for_title(observer, dolphin.window, "Películas", daemon)
+
+                # WM_NAME is STRING, so model the legacy Latin-1 bytes emitted
+                # by the affected Dolphin window rather than UTF-8 bytes.
+                dolphin.set_wm_title_bytes(b"Pel\xedculas")
+                self._wait_for_title(observer, dolphin.window, "Películas", daemon)
+
+                net_property = observer._get_property(
+                    dolphin.window, observer.net_wm_name
+                )
+                self.assertIsNotNone(net_property)
+                assert net_property is not None
+                self.assertEqual(net_property[0], observer.utf8_string)
+                self.assertEqual(net_property[2], "Películas".encode("utf-8"))
+                self.assertNotIn(b"\xef\xbf\xbd", net_property[2])
+            finally:
+                observer.close()
+                dolphin.close()
+                if daemon.poll() is None:
+                    daemon.terminate()
+                    daemon.wait(timeout=5)
+                if daemon.stdout:
+                    daemon.stdout.close()
+                if daemon.stderr:
+                    daemon.stderr.close()
 
     def test_graceful_stop_restores_owned_title(self):
         with tempfile.TemporaryDirectory() as state:
