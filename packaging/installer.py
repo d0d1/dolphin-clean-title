@@ -17,14 +17,25 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_PACKAGE = PROJECT_ROOT / "src" / "dolphin_clean_title"
 APP_NAME = "dolphin-clean-title"
-MANAGED_MARKER = "# dolphin-clean-title-managed"
-DOLPHIN_WRAPPER_MARKER = "# dolphin-clean-title-dolphin-wrapper-managed"
 DATA_MARKER = "managed-by-dolphin-clean-title"
 RELEASE_RETENTION = 3
 
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
+from dolphin_clean_title import feature
 from dolphin_clean_title.environment import EnvironmentError, validate_x11_session
+from dolphin_clean_title.feature import (
+    FeatureError,
+    application_desktop_content,
+    application_desktop_path,
+    autostart_content,
+    dolphin_wrapper_content,
+    feature_state_path,
+    install_state_default,
+    is_managed,
+    service_wrapper_content,
+    write_install_state,
+)
 from dolphin_clean_title.paths import log_path, pid_path
 from dolphin_clean_title.x11 import X11Connection, X11Unavailable
 
@@ -40,34 +51,24 @@ class PathSnapshot:
     mode: int
 
 
-def _xdg_path(variable: str, fallback: Path) -> Path:
-    value = os.environ.get(variable)
-    if not value:
-        return fallback
-    path = Path(value).expanduser()
-    if not path.is_absolute():
-        raise InstallationError(f"{variable} must be an absolute path: {path}")
-    return path
-
-
 def data_root() -> Path:
-    return _xdg_path("XDG_DATA_HOME", Path.home() / ".local" / "share") / APP_NAME
+    return feature.data_root()
 
 
 def config_home() -> Path:
-    return _xdg_path("XDG_CONFIG_HOME", Path.home() / ".config")
+    return feature.config_home()
 
 
 def bin_path() -> Path:
-    return Path.home() / ".local" / "bin" / APP_NAME
+    return feature.bin_path()
 
 
 def dolphin_path() -> Path:
-    return Path.home() / ".local" / "bin" / "dolphin"
+    return feature.dolphin_path()
 
 
 def desktop_path() -> Path:
-    return config_home() / "autostart" / f"{APP_NAME}.desktop"
+    return feature.autostart_path()
 
 
 def _path_entry(path_entry: str) -> str:
@@ -147,31 +148,57 @@ def _validate_user_manager_environment() -> None:
         )
 
 
-def _preflight() -> None:
+def _validate_ui_runtime() -> None:
+    probe = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import gi; gi.require_version('Gtk', '4.0'); "
+                "gi.require_version('Adw', '1'); "
+                "from gi.repository import Adw, Gtk"
+            ),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if probe.returncode != 0:
+        raise InstallationError(
+            "GTK4, libadwaita, and PyGObject are required for the settings app; "
+            "install the distribution packages and retry"
+        )
+
+
+def _preflight(require_activation: bool = True) -> None:
     if sys.version_info < (3, 10):
         raise InstallationError(
             "Python 3.10 or newer is required; "
             f"found {sys.version.split()[0]}"
         )
-    _validate_launch_path()
-    if shutil.which("systemd-run") is None:
-        raise InstallationError(
-            "systemd-run is required for FileManager1 Dolphin windows; "
-            "install the user-systemd runtime and retry"
-        )
-    dolphin_executable = Path("/usr/bin/dolphin")
-    if not dolphin_executable.is_file() or not os.access(dolphin_executable, os.X_OK):
-        raise InstallationError(
-            "this release requires an executable /usr/bin/dolphin; "
-            "the installed Dolphin path is outside the supported boundary"
-        )
-    _validate_user_manager_environment()
-    try:
-        info = validate_x11_session()
-        with X11Connection(info.display):
-            pass
-    except (EnvironmentError, X11Unavailable) as exc:
-        raise InstallationError(str(exc)) from exc
+    _validate_ui_runtime()
+    if require_activation:
+        _validate_launch_path()
+        if shutil.which("systemd-run") is None:
+            raise InstallationError(
+                "systemd-run is required for FileManager1 Dolphin windows; "
+                "install the user-systemd runtime and retry"
+            )
+        dolphin_executable = Path("/usr/bin/dolphin")
+        if not dolphin_executable.is_file() or not os.access(
+            dolphin_executable, os.X_OK
+        ):
+            raise InstallationError(
+                "this release requires an executable /usr/bin/dolphin; "
+                "the installed Dolphin path is outside the supported boundary"
+            )
+        _validate_user_manager_environment()
+        try:
+            info = validate_x11_session()
+            with X11Connection(info.display):
+                pass
+        except (EnvironmentError, X11Unavailable) as exc:
+            raise InstallationError(str(exc)) from exc
 
 
 def _atomic_write_bytes(path: Path, content: bytes, mode: int) -> None:
@@ -217,93 +244,20 @@ def _restore(path: Path, snapshot: PathSnapshot | None) -> None:
         _atomic_write_bytes(path, snapshot.content, snapshot.mode)
 
 
-def _desktop_exec(path: Path) -> str:
-    escaped = str(path).replace(chr(92), chr(92) * 2)
-    escaped = escaped.replace(chr(34), chr(92) + chr(34))
-    escaped = escaped.replace(chr(36), chr(92) + chr(36))
-    escaped = escaped.replace(chr(96), chr(92) + chr(96))
-    return f'"{escaped}"'
-
-
-def _desktop_try_exec(path: Path) -> str:
-    """Render the executable path required by the desktop TryExec key."""
-
-    return str(path)
-
-
 def _service_wrapper_content(root: Path, python_executable: str) -> str:
-    from shlex import quote
-
-    return f"""#!/bin/sh
-{MANAGED_MARKER}
-set -eu
-APP_ROOT={quote(str(root))}
-PYTHON={quote(python_executable)}
-export PYTHONPATH="$APP_ROOT${{PYTHONPATH:+:$PYTHONPATH}}"
-exec "$PYTHON" -m dolphin_clean_title "$@"
-"""
+    return service_wrapper_content(root, python_executable)
 
 
 def _dolphin_wrapper_content() -> str:
-    return f'''#!/bin/sh
-{DOLPHIN_WRAPPER_MARKER}
-set -eu
-
-if [ ! -r /proc/self/cgroup ]; then
-    echo "dolphin-clean-title: cannot inspect /proc/self/cgroup; refusing to launch Dolphin" >&2
-    exit 2
-fi
-
-in_filemanager_service=false
-while IFS= read -r cgroup_line; do
-    case "$cgroup_line" in
-        */plasma-dolphin.service|*/plasma-dolphin.service/*)
-            in_filemanager_service=true
-            break
-            ;;
-    esac
-done < /proc/self/cgroup
-
-if $in_filemanager_service; then
-    unit="dolphin-clean-title-window-$(date +%s%N)-$$"
-    if output=$(systemd-run --user --unit="$unit" --collect --no-block \\
-        --setenv=QT_QPA_PLATFORM=xcb /usr/bin/dolphin "$@" 2>&1); then
-        exit 0
-    else
-        status=$?
-        echo "dolphin-clean-title: could not start transient unit $unit.service" >&2
-        [ -z "$output" ] || echo "$output" >&2
-        exit "$status"
-    fi
-fi
-
-export QT_QPA_PLATFORM=xcb
-exec /usr/bin/dolphin "$@"
-'''
+    return dolphin_wrapper_content()
 
 
 def _desktop_content(wrapper: Path) -> str:
-    return f"""[Desktop Entry]
-Type=Application
-Name=Dolphin Clean Title
-Comment=Remove the trailing Dolphin suffix from X11 Dolphin window titles
-Exec={_desktop_exec(wrapper)}
-TryExec={_desktop_try_exec(wrapper)}
-Terminal=false
-X-Dolphin-Clean-Title-Managed=true
-"""
+    return autostart_content(wrapper)
 
 
 def _is_managed(path: Path) -> bool:
-    try:
-        content = path.read_text(encoding="utf-8")
-    except (FileNotFoundError, OSError):
-        return False
-    return (
-        MANAGED_MARKER in content
-        or DOLPHIN_WRAPPER_MARKER in content
-        or "X-Dolphin-Clean-Title-Managed=true" in content
-    )
+    return is_managed(path)
 
 
 def _run_wrapper(wrapper: Path, action: str) -> subprocess.CompletedProcess[str]:
@@ -428,13 +382,25 @@ def _wait_for_service(timeout: float = 5.0) -> None:
         time.sleep(0.05)
     raise InstallationError(
         f"service did not become ready within {timeout:g} seconds; "
-        f"inspect {log_path()}"
+        f"inspect {_display_path(log_path())}"
     )
+
+
+def _display_path(path: Path) -> str:
+    """Show user-local paths without exposing the account name."""
+
+    home = Path.home()
+    try:
+        return "~/" + str(path.relative_to(home))
+    except ValueError:
+        return str(path)
 
 
 def _assert_managed_or_absent(path: Path, label: str) -> None:
     if os.path.lexists(path) and not _is_managed(path):
-        raise InstallationError(f"refusing to overwrite non-managed {label}: {path}")
+        raise InstallationError(
+            f"refusing to overwrite non-managed {label}: {_display_path(path)}"
+        )
 
 
 def _rollback_activation(
@@ -461,7 +427,8 @@ def _rollback_activation(
                 pass
     except (OSError, InstallationError) as exc:
         raise InstallationError(
-            f"activation failed ({exc}) and rollback also failed; inspect {root}"
+            f"activation failed ({exc}) and rollback also failed; "
+            f"inspect {_display_path(root)}"
         ) from exc
 
 
@@ -532,11 +499,22 @@ def _rollback_failed_service_start(
 
 
 def install(start_service: bool = True) -> int:
-    _preflight()
     root = data_root()
     wrapper = bin_path()
     dolphin_wrapper = dolphin_path()
     desktop = desktop_path()
+    application_desktop = application_desktop_path()
+    state = feature_state_path()
+    _assert_managed_or_absent(wrapper, "binary")
+    _assert_managed_or_absent(dolphin_wrapper, "Dolphin wrapper")
+    _assert_managed_or_absent(desktop, "autostart entry")
+    _assert_managed_or_absent(application_desktop, "application launcher")
+    _assert_managed_or_absent(state, "feature state")
+    try:
+        preserve_enabled = install_state_default()
+    except FeatureError as exc:
+        raise InstallationError(str(exc)) from exc
+    _preflight(require_activation=preserve_enabled)
     releases = root / "releases"
     root_was_present = os.path.lexists(root)
     if os.path.lexists(root):
@@ -546,14 +524,16 @@ def install(start_service: bool = True) -> int:
         except (FileNotFoundError, OSError):
             managed_data = False
         if not managed_data:
-            raise InstallationError(f"refusing to overwrite non-managed data directory: {root}")
-    _assert_managed_or_absent(wrapper, "binary")
-    _assert_managed_or_absent(dolphin_wrapper, "Dolphin wrapper")
-    _assert_managed_or_absent(desktop, "autostart entry")
+            raise InstallationError(
+                "refusing to overwrite non-managed data directory: "
+                f"{_display_path(root)}"
+            )
     activation_paths = {
         "wrapper": wrapper,
         "dolphin_wrapper": dolphin_wrapper,
         "desktop": desktop,
+        "application_desktop": application_desktop,
+        "state": state,
         "marker": root / ".managed",
         "current": root / "current",
     }
@@ -587,8 +567,18 @@ def install(start_service: bool = True) -> int:
             _service_wrapper_content(current, sys.executable),
             0o755,
         )
-        _atomic_write(dolphin_wrapper, _dolphin_wrapper_content(), 0o755)
-        _atomic_write(desktop, _desktop_content(wrapper), 0o644)
+        _atomic_write(
+            application_desktop,
+            application_desktop_content(wrapper),
+            0o644,
+        )
+        if preserve_enabled:
+            _atomic_write(dolphin_wrapper, _dolphin_wrapper_content(), 0o755)
+            _atomic_write(desktop, _desktop_content(wrapper), 0o644)
+        else:
+            dolphin_wrapper.unlink(missing_ok=True)
+            desktop.unlink(missing_ok=True)
+        write_install_state(preserve_enabled)
         _atomic_write(root / ".managed", f"{DATA_MARKER}\n", 0o600)
         os.replace(current_temporary, current)
     except (InstallationError, OSError) as exc:
@@ -620,7 +610,7 @@ def install(start_service: bool = True) -> int:
             )
         service_stop_succeeded = True
         previous_service_running = "service stopped" in stopped.stdout.lower()
-        if start_service:
+        if preserve_enabled and start_service:
             started = _run_wrapper(wrapper, "--background")
             if started.returncode != 0:
                 raise InstallationError(
@@ -629,8 +619,10 @@ def install(start_service: bool = True) -> int:
                 )
             _wait_for_service()
             print(f"installed and started {APP_NAME}")
-        else:
+        elif preserve_enabled:
             print(f"installed {APP_NAME}; service start deferred")
+        else:
+            print(f"installed {APP_NAME}; feature remains disabled")
     except (InstallationError, OSError) as exc:
         _rollback_failed_service_start(
             cause=str(exc),
@@ -645,8 +637,8 @@ def install(start_service: bool = True) -> int:
             releases=releases,
             root_was_present=root_was_present,
         )
-    print(f"binary: {wrapper}")
-    print(f"autostart: {desktop}")
+    print(f"binary: {_display_path(wrapper)}")
+    print(f"autostart: {_display_path(desktop)}")
     try:
         _prune_releases(releases, current)
     except OSError as exc:
@@ -659,6 +651,8 @@ def uninstall() -> int:
     wrapper = bin_path()
     dolphin_wrapper = dolphin_path()
     desktop = desktop_path()
+    application_desktop = application_desktop_path()
+    state = feature_state_path()
     if os.path.lexists(wrapper) and _is_managed(wrapper):
         stopped = _run_wrapper(wrapper, "--stop")
         if stopped.returncode != 0:
@@ -667,7 +661,7 @@ def uninstall() -> int:
                 f"{stopped.stderr.strip() or stopped.stdout.strip()}"
             )
     elif os.path.lexists(wrapper):
-        print(f"preserving non-managed file {wrapper}")
+        print(f"preserving non-managed file {_display_path(wrapper)}")
 
     marker = root / ".managed"
     managed_data = False
@@ -681,17 +675,24 @@ def uninstall() -> int:
     if os.path.lexists(desktop) and _is_managed(desktop):
         desktop.unlink()
     elif os.path.lexists(desktop):
-        print(f"preserving non-managed file {desktop}")
+        print(f"preserving non-managed file {_display_path(desktop)}")
+
+    if os.path.lexists(application_desktop) and _is_managed(application_desktop):
+        application_desktop.unlink()
+    elif os.path.lexists(application_desktop):
+        print(f"preserving non-managed file {_display_path(application_desktop)}")
 
     if root.exists() and managed_data:
         shutil.rmtree(root)
     elif root.exists():
-        print(f"preserving non-managed directory {root}")
+        print(f"preserving non-managed directory {_display_path(root)}")
 
     if os.path.lexists(wrapper) and _is_managed(wrapper):
         wrapper.unlink()
     if os.path.lexists(dolphin_wrapper) and _is_managed(dolphin_wrapper):
         dolphin_wrapper.unlink()
+    if os.path.lexists(state) and _is_managed(state):
+        state.unlink()
     print(f"uninstalled {APP_NAME}")
     return 0
 

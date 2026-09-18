@@ -17,6 +17,14 @@ The project has two cooperating user-local pieces:
    service so the GUI process does not inherit the daemon's short-lived
    activation cgroup.
 
+The installed settings application is a separate presentation layer. Its
+libadwaita window calls a shared feature-lifecycle API for `enable`, `disable`,
+`is_enabled`, and `status`; it does not edit activation files or manage
+processes directly. The lifecycle layer owns persistent enabled/disabled
+state, collision checks, rollback, and service transitions. A managed desktop
+entry launches the settings app through the installed command wrapper and is
+kept when the feature is disabled.
+
 The vendor `plasma-dolphin.service` and its FileManager1 D-Bus service file
 remain untouched. The native `/usr/bin/dolphin --daemon` therefore continues to
 use the desktop's native Wayland backend. The wrapper changes only the GUI
@@ -45,6 +53,9 @@ managed XCB wrapper while leaving the native FileManager1 daemon alone.
 The installer rejects sessions without a usable X11/XWayland display and
 rejects launch environments where the managed wrapper cannot precede
 `/usr/bin`. It also requires `systemd-run` for the FileManager1 child path.
+The settings app is available only when the installed GTK4, libadwaita, and
+PyGObject runtime can be imported; a failed state read or transition is shown
+as an error and never presented as a guessed switch state.
 
 ## Title-cleaning behavior
 
@@ -72,5 +83,8 @@ coupling, and unjustified abstractions. Every abstraction must make a real
 boundary or behavior easier to verify and maintain.
 
 The runtime must have no telemetry, analytics, network access, accounts,
-payments, subscriptions, or external service dependencies. It must remain a
-local standalone package and tolerate ordinary Dolphin and taskbar updates.
+payments, subscriptions, or external service dependencies. The explicit
+`Report a Problem` action may hand its fixed issue URL to the user's default
+browser through Gio; no request is made automatically by this project. It must
+remain a local standalone package and tolerate ordinary Dolphin and taskbar
+updates.

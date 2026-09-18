@@ -35,6 +35,13 @@ local compatibility boundary, Dolphin process hints, and matching windows.
 Keep temporary research in
 `.agent/research/` and generated logs or dumps in `.artifacts/`.
 
+The production settings app uses the shared lifecycle API rather than
+managing activation files or processes itself. Keep its XDG application
+launcher installed even when the feature is disabled, and preserve the
+configured state across updates. Verify UI changes through the installed
+launcher as well as deterministic lifecycle tests; do not introduce a second
+state store or a separate UI-only implementation of enable/disable.
+
 ## CI and hosted infrastructure
 
 This project uses no GitHub Actions. If continuous integration becomes

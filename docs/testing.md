@@ -32,6 +32,15 @@ constraints:
   current-session and user-manager PATH validation, automatic service restart,
   rollback after activation failure, Wayland-with-XWayland installation, and
   uninstall cleanup in temporary XDG directories.
+- Feature-lifecycle tests exercise persistent enable/disable state, idempotent
+  transitions, partial-state detection, rollback after failed transitions,
+  disabled-state preservation across updates, and the installed application
+  desktop entry.
+- The settings-app boundary is tested through the shared lifecycle API and
+  desktop-entry content. On the real desktop, launch the installed app through
+  its XDG launcher, verify the native switch and action-row focus behavior,
+  and exercise enable/disable from the UI while observing `status` and the
+  cleaner PID. UI tests must not replace deterministic lifecycle tests.
 - Wrapper construction tests verify exact `/usr/bin/dolphin` execution,
   cgroup-context detection, transient `systemd-run` options, collision-safe
   unit naming, shell syntax, and argument-preserving quoting.

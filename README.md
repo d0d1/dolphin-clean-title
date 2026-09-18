@@ -25,6 +25,18 @@ The cleaner matches only Dolphin windows (`WM_CLASS=dolphin`) and removes only
 one matching trailing suffix. It follows title changes while navigating and
 publishes the cleaned value through `_NET_WM_NAME`.
 
+The installed `Dolphin Clean Title` settings app provides a native GNOME
+settings window for enabling or disabling the feature. The app and its
+launcher remain installed when the feature is disabled. The command-line
+equivalents are:
+
+```sh
+~/.local/bin/dolphin-clean-title enable
+~/.local/bin/dolphin-clean-title disable
+~/.local/bin/dolphin-clean-title status
+~/.local/bin/dolphin-clean-title ui
+```
+
 Native Wayland Dolphin windows are deliberately outside the cleaner's reach.
 On a Wayland desktop, Dolphin is supported when an accessible XWayland display
 is available and the managed wrapper can be found before `/usr/bin` in `PATH`.
@@ -38,6 +50,10 @@ The supported boundary is Linux with:
 - a usable `DISPLAY` backed by X11 or XWayland;
 - `systemd-run --user` and a functioning user systemd manager; and
 - the distro-provided `libX11.so.6` runtime library.
+
+The settings app additionally requires the distribution's GTK4, libadwaita,
+and PyGObject packages. The installer checks those imports before installing
+the app.
 
 Both native X11/Xorg-compatible sessions and Wayland desktops with XWayland
 are supported by the implementation. The current real-machine end-to-end
@@ -57,7 +73,7 @@ The installer validates Python, `/usr/bin/dolphin`, the X11/XWayland display,
 the user systemd manager, `systemd-run`, and the required `PATH` ordering in
 both the current session and user manager before it writes anything. It
 installs the cleaner, the managed `~/.local/bin/dolphin` wrapper, and an XDG
-autostart entry.
+autostart entry, and a `Dolphin Clean Title` application launcher.
 It does not edit Dolphin, its desktop entry, FileManager1,
 `plasma-dolphin.service`, Qt, GNOME Shell, or any taskbar files.
 
@@ -125,6 +141,9 @@ collide with project paths.
 - If a title is unchanged, run `~/.local/bin/dolphin-clean-title --diagnose`.
   Only an exact case-insensitive Dolphin `WM_CLASS` instance or class is
   handled, and only the two documented suffixes are removed.
+- If the settings app cannot read or change the feature state, it leaves the
+  switch unavailable and shows the actionable local error instead of guessing
+  the state.
 - If the cleaner is not active, run `~/.local/bin/dolphin-clean-title --check`
   and inspect the XDG state log. Use the foreground command above for a local
   trace.
@@ -140,6 +159,10 @@ collide with project paths.
 - No account requirement
 - No payments or subscriptions
 - No external service dependencies at runtime
+
+The `Report a Problem` row only hands the configured issue URL to the default
+browser after an explicit activation. The application does not send telemetry,
+diagnostics, or background network requests.
 
 ## Docs
 

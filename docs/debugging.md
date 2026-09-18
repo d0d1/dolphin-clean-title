@@ -14,6 +14,11 @@ The service provides actionable file logging, `--verbose` foreground output,
 `--check` environment validation, and `--diagnose` inspection of the session,
 Python version, libX11 availability, X11 connectivity, X-server kind/vendor
 and protocol version, Dolphin processes, and matching windows.
+The installed lifecycle command adds `status`, which reports the persisted
+feature state only when the managed activation files agree with it. A partial
+or colliding activation is reported as an error rather than being treated as
+enabled or disabled. The settings app uses the same status boundary and shows
+the error dialog while keeping its switch unavailable.
 The default log is under the XDG state directory; use `--log-file` to place a
 diagnostic log under `.artifacts/` during development.
 
@@ -72,3 +77,9 @@ Wayland Dolphin windows remain outside the X11 cleaner. An Xwayland display
 can exercise the X11 protocol path, but it is not evidence of native Xorg or
 native Wayland title rewriting.
 Do not infer compatibility from a skipped X11 integration test.
+
+For launcher or settings-app failures, inspect the managed desktop entry under
+the XDG data applications directory, verify its unquoted `TryExec` path, and
+run `~/.local/bin/dolphin-clean-title status`. The `Report a Problem` action
+does not collect or upload diagnostics; it only asks Gio to open the fixed
+issue URL after explicit user activation.

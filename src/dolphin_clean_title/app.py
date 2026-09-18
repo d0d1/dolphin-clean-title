@@ -12,6 +12,7 @@ from typing import Sequence
 
 from . import __version__
 from .environment import EnvironmentError, session_info, validate_x11_session
+from . import feature
 from .lifecycle import InstanceAlreadyRunning, InstanceLock, stop_running
 from .paths import log_path
 from .x11 import X11Connection, X11Unavailable, find_x11_library
@@ -65,6 +66,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=argparse.SUPPRESS,
     )
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=("enable", "disable", "status", "ui"),
+        help="manage the persistent feature or open its settings window",
+    )
     return parser
 
 
@@ -90,6 +97,19 @@ def _error(message: str) -> int:
     return 2
 
 
+def _diagnostic_argument(value: str, index: int) -> str:
+    """Keep process diagnostics useful without echoing personal paths."""
+
+    if index == 0 and value == "/usr/bin/dolphin":
+        return value
+    home = str(Path.home())
+    if value == home or value.startswith(f"{home}/"):
+        return "~" + value[len(home) :]
+    if value.startswith("/"):
+        return "<absolute-path>"
+    return value
+
+
 def _dolphin_processes() -> list[tuple[int, str, str]]:
     """Return local Dolphin processes and the backend visible in their env."""
 
@@ -111,8 +131,10 @@ def _dolphin_processes() -> list[tuple[int, str, str]]:
             if executable != b"dolphin":
                 continue
             arguments = " ".join(
-                part.decode("utf-8", errors="replace")
-                for part in command_parts
+                _diagnostic_argument(
+                    part.decode("utf-8", errors="replace"), index
+                )
+                for index, part in enumerate(command_parts)
             )
             environment = {}
             for raw_line in (entry / "environ").read_bytes().split(b"\0"):
@@ -270,8 +292,33 @@ def run_foreground(verbose: bool, path: str | None) -> int:
     return 0
 
 
+def run_feature_command(command: str) -> int:
+    try:
+        if command == "enable":
+            feature.enable()
+            print("Dolphin Clean Title enabled")
+        elif command == "disable":
+            feature.disable()
+            print("Dolphin Clean Title disabled")
+        elif command == "status":
+            print("enabled" if feature.is_enabled() else "disabled")
+        elif command == "ui":
+            from .ui import main as ui_main
+
+            return ui_main()
+        return 0
+    except feature.FeatureError as exc:
+        return _error(str(exc))
+    except (ImportError, ValueError) as exc:
+        return _error(f"settings UI is unavailable: {exc}")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command:
+        if args.background or args.stop or args.check or args.diagnose or args.foreground:
+            return _error("lifecycle commands cannot be combined with legacy service flags")
+        return run_feature_command(args.command)
     if args.stop:
         try:
             stopped = stop_running()

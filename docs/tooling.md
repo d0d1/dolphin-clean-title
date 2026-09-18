@@ -32,10 +32,11 @@ development or verification.
   Linux distributions while using only stable standard-library APIs. This is
   the documented justification for the non-latest minimum; the running
   interpreter must still be checked before installation.
-- The runtime uses only the Python standard library, including
-  [`ctypes`](https://docs.python.org/3/library/ctypes.html) for the distro's
-  X11 client library. There are no third-party runtime dependencies or
-  dependency lockfiles to install.
+- The cleaner service and lifecycle layer use only the Python standard
+  library, including [`ctypes`](https://docs.python.org/3/library/ctypes.html)
+  for the distro's X11 client library. They have no Python package
+  dependencies or dependency lockfiles to install. The settings app uses the
+  separately documented system GTK4/libadwaita/PyGObject runtime.
 - The X11 adapter follows the [Xlib reference](https://www.x.org/releases/current/doc/libX11/libX11/libX11.html)
   for display, property, event, and window operations. It uses the EWMH
   `_NET_WM_NAME` property described by the [Extended Window Manager Hints
@@ -54,6 +55,22 @@ development or verification.
 - The test suite uses Python's standard `unittest` module and a live X11
   integration test. No test framework was added before the implementation
   stack was known.
+- The settings app uses the system-provided GTK 4, libadwaita, and PyGObject
+  bindings. The verified target machine currently exposes GTK 4.14.5,
+  libadwaita 1.5.0, and PyGObject 3.48.2 through its distribution packages;
+  these versions are compatibility evidence, not bundled dependency pins.
+  They were established locally with a PyGObject probe that reads
+  `Gtk.get_major_version()`, `Gtk.get_minor_version()`,
+  `Gtk.get_micro_version()`, and the corresponding `Adw` values, plus
+  `python3 -c 'import gi; print(gi.__version__)'`, on the verified target
+  session; future version changes must repeat that check and consult the linked
+  authoritative API documentation.
+  The implementation uses the documented GTK 4 and libadwaita APIs and fails
+  during installation with an actionable message when those imports are not
+  available. The selected APIs are documented by the [GTK 4
+  documentation](https://docs.gtk.org/gtk4/), the [libadwaita
+  documentation](https://gnome.pages.gitlab.gnome.org/libadwaita/), and the
+  [PyGObject documentation](https://pygobject.gnome.org/).
 
 ## Evaluated alternatives
 
@@ -89,9 +106,11 @@ protocol requires adding its XML and regenerating the vendored proxy. This
 remains relevant only if native Wayland proxying is reconsidered; it is not
 part of the current implementation or support claim.
 
-Because the runtime has no third-party dependencies, a virtual environment is
-not required for the current checkout. If future development adds packages,
-use a project-local or otherwise isolated environment and document the exact
+Because the cleaner has no Python package dependencies, a virtual environment
+is not required for the current checkout. The settings app intentionally uses
+the distribution's GI bindings so that it follows the desktop's GTK and
+libadwaita theme/runtime. If future development adds Python packages, use a
+project-local or otherwise isolated environment and document the exact
 versions and authoritative sources before installation. The installed shell
 wrapper uses only POSIX shell utilities and absolute `/usr/bin/dolphin` and
 does not add a runtime package dependency.

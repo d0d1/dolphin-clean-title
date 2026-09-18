@@ -70,6 +70,11 @@ class InstallerTests(unittest.TestCase):
             wrapper = Path(home) / ".local" / "bin" / "dolphin-clean-title"
             dolphin_wrapper = Path(home) / ".local" / "bin" / "dolphin"
             desktop = Path(env["XDG_CONFIG_HOME"]) / "autostart" / "dolphin-clean-title.desktop"
+            application = (
+                Path(env["XDG_DATA_HOME"])
+                / "applications"
+                / "dolphin-clean-title.desktop"
+            )
             self.assertIn(sys.executable, wrapper.read_text(encoding="utf-8"))
             wrapper_text = dolphin_wrapper.read_text(encoding="utf-8")
             self.assertIn("dolphin-clean-title-dolphin-wrapper-managed", wrapper_text)
@@ -85,11 +90,16 @@ class InstallerTests(unittest.TestCase):
                 0,
             )
             self.assertTrue(desktop.exists())
+            self.assertTrue(application.exists())
             desktop_text = desktop.read_text(encoding="utf-8")
             self.assertIn("X-Dolphin-Clean-Title-Managed=true", desktop_text)
             self.assertIn(f'Exec="{wrapper}"', desktop_text)
             self.assertIn(f"TryExec={wrapper}\n", desktop_text)
             self.assertNotIn(f'TryExec="{wrapper}"', desktop_text)
+            application_text = application.read_text(encoding="utf-8")
+            self.assertIn("Name=Dolphin Clean Title", application_text)
+            self.assertIn(f'Exec="{wrapper}" ui', application_text)
+            self.assertIn(f"TryExec={wrapper}\n", application_text)
 
             uninstall = subprocess.run(
                 ["sh", str(ROOT / "uninstall.sh")],
@@ -103,6 +113,63 @@ class InstallerTests(unittest.TestCase):
             self.assertFalse(wrapper.exists())
             self.assertFalse(dolphin_wrapper.exists())
             self.assertFalse(desktop.exists())
+            self.assertFalse(application.exists())
+
+    def test_disabled_state_survives_reinstall(self):
+        with tempfile.TemporaryDirectory() as home:
+            env = self._environment(home)
+            install = subprocess.run(
+                ["sh", str(ROOT / "install.sh"), "--no-start"],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(install.returncode, 0, install.stderr)
+
+            installed = Path(home) / ".local" / "bin" / "dolphin-clean-title"
+            disabled = subprocess.run(
+                [str(installed), "disable"],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(disabled.returncode, 0, disabled.stderr)
+
+            refreshed = subprocess.run(
+                ["sh", str(ROOT / "install.sh"), "--no-start"],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(refreshed.returncode, 0, refreshed.stderr)
+            self.assertEqual(
+                subprocess.run(
+                    [str(installed), "status"],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout.strip(),
+                "disabled",
+            )
+            self.assertFalse(Path(home, ".local", "bin", "dolphin").exists())
+            self.assertFalse(
+                Path(env["XDG_CONFIG_HOME"], "autostart", "dolphin-clean-title.desktop").exists()
+            )
+            self.assertTrue(
+                Path(env["XDG_DATA_HOME"], "applications", "dolphin-clean-title.desktop").exists()
+            )
+            subprocess.run(
+                ["sh", str(ROOT / "uninstall.sh")],
+                cwd=ROOT,
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
 
     def test_default_install_starts_and_restarts_service(self):
         with tempfile.TemporaryDirectory() as home:
@@ -316,6 +383,26 @@ class InstallerTests(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("refusing to overwrite non-managed Dolphin wrapper", result.stderr)
+
+    def test_install_refuses_nonmanaged_application_launcher(self):
+        with tempfile.TemporaryDirectory() as home:
+            env = self._environment(home)
+            launcher = (
+                Path(env["XDG_DATA_HOME"])
+                / "applications"
+                / "dolphin-clean-title.desktop"
+            )
+            launcher.parent.mkdir(parents=True, exist_ok=True)
+            launcher.write_text("[Desktop Entry]\nName=Other App\n", encoding="utf-8")
+            result = subprocess.run(
+                ["sh", str(ROOT / "install.sh"), "--no-start"],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("refusing to overwrite non-managed application launcher", result.stderr)
 
     def test_transient_units_are_stopped_and_collected(self):
         unit = "dolphin-clean-title-window-123-456.service"
