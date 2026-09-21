@@ -8,17 +8,9 @@ A standalone Linux package that removes one trailing `— Dolphin` or `- Dolphin
 from Dolphin window titles without modifying Dolphin or depending on a specific
 taskbar.
 
-## What it does
-
-Dolphin Clean Title launches Dolphin GUI windows through X11/XWayland and
-rewrites only the matching trailing suffix before window lists and taskbars see
-the title. It follows title changes while navigating and leaves Dolphin,
-FileManager1, and desktop-shell files untouched.
-
-The settings app provides one switch. A fresh package installation leaves the
-feature disabled; after enabling it, launch Dolphin normally. Disabling removes
-the user-local activation files while leaving the application and command-line
-tool installed.
+<img src="docs/images/dolphin-clean-title-ui.png"
+    alt="Dolphin Clean Title settings"
+    width="450">
 
 ## Install
 
