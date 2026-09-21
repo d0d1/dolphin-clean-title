@@ -2,5 +2,6 @@
 # dolphin-clean-title-system-command
 set -eu
 
+export DOLPHIN_CLEAN_TITLE_PACKAGED_RUNTIME=1
 export PYTHONPATH=/usr/lib/dolphin-clean-title${PYTHONPATH:+:$PYTHONPATH}
 exec /usr/bin/python3 -m dolphin_clean_title "$@"

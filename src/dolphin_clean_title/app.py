@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import signal
 import subprocess
 import sys
@@ -18,6 +19,18 @@ from .paths import log_path
 from .x11 import X11Connection, X11Unavailable, find_x11_library
 
 LOGGER = logging.getLogger(__name__)
+PACKAGED_RUNTIME_ENV = "DOLPHIN_CLEAN_TITLE_PACKAGED_RUNTIME"
+PACKAGED_RUNTIME_SENTINEL = Path(
+    "/usr/lib/dolphin-clean-title/dolphin_clean_title/__main__.py"
+)
+
+
+def packaged_runtime_available() -> bool:
+    """Return whether a package-launched service still has its runtime."""
+
+    if os.environ.get(PACKAGED_RUNTIME_ENV) != "1":
+        return True
+    return PACKAGED_RUNTIME_SENTINEL.is_file()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -248,10 +261,22 @@ def run_foreground(verbose: bool, path: str | None) -> int:
     except OSError as exc:
         return _error(f"cannot configure logging: {exc}")
     stop_requested = False
+    runtime_missing_logged = False
 
     def request_stop(_signum: int, _frame: object) -> None:
         nonlocal stop_requested
         stop_requested = True
+
+    def service_should_stop() -> bool:
+        nonlocal runtime_missing_logged
+        if stop_requested:
+            return True
+        if not packaged_runtime_available():
+            if not runtime_missing_logged:
+                LOGGER.warning("packaged runtime disappeared; stopping service")
+                runtime_missing_logged = True
+            return True
+        return False
 
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
@@ -281,7 +306,7 @@ def run_foreground(verbose: bool, path: str | None) -> int:
                         result.cleaned,
                     )
 
-                connection.run(lambda: stop_requested, on_cleaned)
+                connection.run(service_should_stop, on_cleaned)
     except InstanceAlreadyRunning:
         LOGGER.info("another service instance is already running")
         return 0

@@ -57,10 +57,10 @@ sudo apt remove dolphin-clean-title
 
 The package does not run maintainer scripts that modify a user's home
 directory. If the package is removed while the feature is enabled, the
-remaining user-local Dolphin wrapper detects that the packaged runtime is gone
-and falls back to ordinary `/usr/bin/dolphin` launches. Reinstalling the
-package restores the packaged runtime without replacing the user's activation
-state.
+running packaged cleaner detects that its runtime is gone and stops; the
+remaining user-local Dolphin wrapper also falls back to ordinary
+`/usr/bin/dolphin` launches. Reinstalling the package restores the packaged
+runtime without replacing the user's activation state.
 
 ## Privacy and external services
 
