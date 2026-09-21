@@ -1,0 +1,5 @@
+dolphin-clean-title (0.1.0-1) noble; urgency=medium
+
+  * Initial Ubuntu package for Dolphin Clean Title.
+
+ -- d0d1 <d0d1@users.noreply.github.com>  Mon, 21 Sep 2026 00:00:00 -0300

@@ -140,3 +140,35 @@ class FeatureLifecycleTests(unittest.TestCase):
             feature.REPORT_URL,
             "https://github.com/d0d1/dolphin-clean-title/issues/new",
         )
+
+    def test_debian_command_supports_fresh_disabled_state(self):
+        with tempfile.TemporaryDirectory() as home:
+            env = self._environment(home)
+            system_command = Path(home) / "system-bin" / "dolphin-clean-title"
+            system_command.parent.mkdir(parents=True)
+            system_command.write_text(
+                "#!/bin/sh\n# dolphin-clean-title-system-command\n",
+                encoding="utf-8",
+            )
+            system_command.chmod(0o755)
+            with mock.patch.dict(os.environ, env, clear=False):
+                with mock.patch.object(
+                    feature, "system_command_path", return_value=system_command
+                ):
+                    self.assertEqual(feature.command_path(), system_command)
+                    self.assertFalse(feature.status().enabled)
+                    with mock.patch.object(feature, "validate_activation_environment"):
+                        with mock.patch.object(
+                            feature,
+                            "_run_service",
+                            return_value=subprocess.CompletedProcess([], 0, "", ""),
+                        ):
+                            with mock.patch.object(feature, "_wait_for_service"):
+                                with mock.patch.object(
+                                    feature, "_service_running", return_value=False
+                                ):
+                                    self.assertTrue(feature.enable().enabled)
+                    self.assertIn(
+                        f"Exec=\"{system_command}\"",
+                        feature.autostart_path().read_text(encoding="utf-8"),
+                    )

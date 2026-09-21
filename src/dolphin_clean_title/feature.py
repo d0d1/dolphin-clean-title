@@ -17,6 +17,7 @@ from .x11 import X11Connection, X11Unavailable
 
 MANAGED_MARKER = "# dolphin-clean-title-managed"
 DOLPHIN_WRAPPER_MARKER = "# dolphin-clean-title-dolphin-wrapper-managed"
+SYSTEM_COMMAND_MARKER = "# dolphin-clean-title-system-command"
 DESKTOP_MARKER = "X-Dolphin-Clean-Title-Managed=true"
 DATA_MARKER = "managed-by-dolphin-clean-title"
 STATE_MARKER = "# dolphin-clean-title-state-v1"
@@ -65,6 +66,29 @@ def config_home() -> Path:
 
 def bin_path() -> Path:
     return Path.home() / ".local" / "bin" / APP_NAME
+
+
+def system_command_path() -> Path:
+    return Path("/usr/bin") / APP_NAME
+
+
+def _has_marker(path: Path, marker: str) -> bool:
+    try:
+        return marker in path.read_text(encoding="utf-8")
+    except (FileNotFoundError, OSError, UnicodeDecodeError):
+        return False
+
+
+def command_path() -> Path:
+    """Return the installed command used for lifecycle service control."""
+
+    user_command = bin_path()
+    if _has_marker(user_command, MANAGED_MARKER):
+        return user_command
+    system_command = system_command_path()
+    if _has_marker(system_command, SYSTEM_COMMAND_MARKER):
+        return system_command
+    return user_command
 
 
 def dolphin_path() -> Path:
@@ -267,6 +291,8 @@ def is_managed(path: Path) -> bool:
         markers = (DESKTOP_MARKER,)
     elif path == bin_path():
         markers = (MANAGED_MARKER,)
+    elif path == system_command_path():
+        markers = (SYSTEM_COMMAND_MARKER,)
     else:
         markers = (MANAGED_MARKER, DOLPHIN_WRAPPER_MARKER, DESKTOP_MARKER)
     return any(marker in content for marker in markers)
@@ -355,16 +381,16 @@ def _activation_state() -> bool:
 
 
 def _require_installed() -> None:
-    if not is_managed(bin_path()) or not is_managed(application_desktop_path()):
+    if not is_managed(command_path()):
         raise FeatureError("Dolphin Clean Title is not installed")
 
 
 def status() -> FeatureStatus:
     _require_installed()
     configured = _read_state()
-    if configured is None:
-        raise FeatureError("the persistent feature state is missing")
     active = _activation_state()
+    if configured is None:
+        configured = active
     if active != configured:
         raise FeatureError("managed activation does not match the persistent state")
     return FeatureStatus(enabled=configured)
@@ -377,7 +403,7 @@ def is_enabled() -> bool:
 def _run_service(action: str) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
-            [str(bin_path()), action],
+            [str(command_path()), action],
             check=False,
             capture_output=True,
             text=True,
@@ -438,7 +464,9 @@ def enable() -> FeatureStatus:
         }
         try:
             _atomic_write(dolphin_path(), dolphin_wrapper_content(), 0o755)
-            _atomic_write(autostart_path(), autostart_content(bin_path()), 0o644)
+            _atomic_write(
+                autostart_path(), autostart_content(command_path()), 0o644
+            )
             _write_state(True)
             started = _run_service("--background")
             if started.returncode != 0:

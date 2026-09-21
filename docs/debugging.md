@@ -61,9 +61,10 @@ boundary needs it and document how an agent can invoke it noninteractively.
 
 From a checkout, run `make check`, then use
 `PYTHONPATH=src python3 -m dolphin_clean_title --check` or the same module
-command with `--foreground` if a foreground trace is needed. For an installed
-copy, use `~/.local/bin/dolphin-clean-title --check` and
-`~/.local/bin/dolphin-clean-title --diagnose`. Run the service in the
+command with `--foreground` if a foreground trace is needed. For a
+source-checkout installation, use `~/.local/bin/dolphin-clean-title --check`
+and `~/.local/bin/dolphin-clean-title --diagnose`; for the Debian package use
+`/usr/bin/dolphin-clean-title` with the same options. Run the service in the
 foreground with
 `--verbose --log-file .artifacts/dolphin-clean-title.log` and inspect that log
 for the session, X11 connection, window identity, property changes, and
@@ -80,6 +81,8 @@ Do not infer compatibility from a skipped X11 integration test.
 
 For launcher or settings-app failures, inspect the managed desktop entry under
 the XDG data applications directory, verify its unquoted `TryExec` path, and
-run `~/.local/bin/dolphin-clean-title status`. The `Report a Problem` action
+run the installed command's `status` action. Use the source command at
+`~/.local/bin/dolphin-clean-title` or the package command at
+`/usr/bin/dolphin-clean-title`. The `Report a Problem` action
 does not collect or upload diagnostics; it only asks Gio to open the fixed
 issue URL after explicit user activation.

@@ -1,0 +1,6 @@
+#!/bin/sh
+# dolphin-clean-title-system-command
+set -eu
+
+export PYTHONPATH=/usr/lib/dolphin-clean-title${PYTHONPATH:+:$PYTHONPATH}
+exec /usr/bin/python3 -m dolphin_clean_title "$@"

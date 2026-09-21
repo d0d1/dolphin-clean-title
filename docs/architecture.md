@@ -25,6 +25,13 @@ state, collision checks, rollback, and service transitions. A managed desktop
 entry launches the settings app through the installed command wrapper and is
 kept when the feature is disabled.
 
+The Debian package installs the command, Python runtime, and settings launcher
+system-wide, but does not write user activation files or run user-home
+maintainer scripts. The lifecycle API accepts either the managed
+source-checkout command or the managed packaged command; activation files and
+state remain user-specific in both cases. A fresh package install therefore
+has no activation and reports disabled until the user enables it.
+
 The vendor `plasma-dolphin.service` and its FileManager1 D-Bus service file
 remain untouched. The native `/usr/bin/dolphin --daemon` therefore continues to
 use the desktop's native Wayland backend. The wrapper changes only the GUI

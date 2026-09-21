@@ -1,0 +1,3 @@
+packaging/dolphin-clean-title usr/bin
+packaging/dolphin-clean-title.desktop usr/share/applications
+src/dolphin_clean_title/*.py usr/lib/dolphin-clean-title/dolphin_clean_title

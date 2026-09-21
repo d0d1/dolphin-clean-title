@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: check test syntax install uninstall diagnose
+.PHONY: check test syntax install uninstall diagnose package
 
 check: test syntax
 
@@ -18,3 +18,6 @@ uninstall:
 
 diagnose:
 	PYTHONPATH=src $(PYTHON) -m dolphin_clean_title --diagnose
+
+package:
+	dpkg-buildpackage -us -uc -b

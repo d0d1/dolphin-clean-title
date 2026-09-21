@@ -71,6 +71,26 @@ development or verification.
   documentation](https://docs.gtk.org/gtk4/), the [libadwaita
   documentation](https://gnome.pages.gitlab.gnome.org/libadwaita/), and the
   [PyGObject documentation](https://pygobject.gnome.org/).
+- The Ubuntu 24.04 package declares the distribution runtime packages
+  `dolphin`, `python3`, `python3-gi`, `gir1.2-gtk-4.0`, `gir1.2-adw-1`,
+  `libgtk-4-1`, `libadwaita-1-0`, `libx11-6`, and `systemd`. Their names and
+  candidate versions were checked with `apt-cache policy` on the verified
+  Ubuntu 24.04 target: Dolphin `4:23.08.5-0ubuntu4`, Python `3.12.3-0ubuntu2.1`,
+  GTK `4.14.5+ds-0ubuntu0.10`, libadwaita `1.5.0-1ubuntu2`, PyGObject
+  `3.48.2-1`, libX11 `2:1.8.7-1build1`, and systemd `255.4-1ubuntu8.17`.
+  These are compatibility evidence, not hard pins; the authoritative package
+  metadata is the [Ubuntu package index](https://packages.ubuntu.com/noble/).
+  The package does not vendor or install Python packages from the network.
+- Debian packaging uses `dpkg-buildpackage`, `dpkg-deb`, and debhelper
+  compatibility level 13. The [Debian Maintainer Guide](https://www.debian.org/doc/manuals/maint-guide/dreq.en.html),
+  [Debian Policy control fields](https://www.debian.org/doc/debian-policy/ch-controlfields.html),
+  and [debhelper documentation](https://manpages.debian.org/unstable/debhelper/debhelper.7.en.html)
+  are the authoritative references for the package metadata and build flow.
+  `debhelper-compat (= 13)` is the current stable compatibility baseline for
+  the Ubuntu 24.04 source package; it is a build dependency, not a runtime
+  dependency. The package is intentionally pure Python/shell and therefore
+  uses `Architecture: all` while declaring its architecture-specific runtime
+  dependencies explicitly.
 
 ## Evaluated alternatives
 

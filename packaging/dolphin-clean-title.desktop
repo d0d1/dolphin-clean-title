@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Dolphin Clean Title
+Comment=Configure Dolphin title cleaning
+Exec=/usr/bin/dolphin-clean-title ui
+TryExec=/usr/bin/dolphin-clean-title
+Icon=preferences-system
+Terminal=false
+Categories=Utility;Settings;
+StartupNotify=true
+StartupWMClass=com.d0d1.DolphinCleanTitle
+X-GNOME-Application-ID=com.d0d1.DolphinCleanTitle

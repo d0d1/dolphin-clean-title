@@ -16,24 +16,22 @@ files, directories, or hosted infrastructure for possible future tools.
 
 ## Local workflow
 
-The implementation is deliberately runnable from a checkout without a
-dependency installation. Use `make check` for the full deterministic test and
-syntax-check suite. The live X11 integration and packaging tests require a
-usable `DISPLAY`; pure unit tests remain useful without it.
+Use `make check` for the full deterministic test and syntax-check suite. The
+live X11 integration checks require a usable `DISPLAY`; the pure unit tests
+remain useful without a graphical session.
 
-Use `./install.sh` to install the current checkout for the current user,
-`./install.sh --no-start` when only the files should be activated, and
-`./uninstall.sh` to stop the service, collect project-owned transient GUI
-units, and remove only files managed by this project. Installation also
-manages `~/.local/bin/dolphin`, which selects XCB
-for ordinary launches and uses transient user-systemd units for FileManager1
-GUI children. It never creates a persistent override for the vendor Dolphin
-unit. `--no-start` stops an older running instance and leaves the cleaner
-service stopped. Successful updates retain the three most recent staged
-releases. `~/.local/bin/dolphin-clean-title --diagnose` reports the
-local compatibility boundary, Dolphin process hints, and matching windows.
-Keep temporary research in
-`.agent/research/` and generated logs or dumps in `.artifacts/`.
+The supported end-user installation is the Debian package described below.
+`./install.sh` is retained only as a source-checkout development workflow;
+`./install.sh --no-start` is useful for testing staging without starting the
+cleaner, and `./uninstall.sh` removes that user-local development installation.
+The source installer manages `~/.local/bin/dolphin`, which selects XCB for
+ordinary launches and uses transient user-systemd units for FileManager1 GUI
+children. It never creates a persistent override for the vendor Dolphin unit.
+It refuses unmanaged collisions rather than overwriting them. Successful
+source updates retain the three most recent staged releases.
+
+Keep temporary research in `.agent/research/` and generated logs or dumps in
+`.artifacts/`.
 
 The production settings app uses the shared lifecycle API rather than
 managing activation files or processes itself. Keep its XDG application
@@ -41,6 +39,71 @@ launcher installed even when the feature is disabled, and preserve the
 configured state across updates. Verify UI changes through the installed
 launcher as well as deterministic lifecycle tests; do not introduce a second
 state store or a separate UI-only implementation of enable/disable.
+
+## Debian package
+
+The canonical distribution artifact is `dolphin-clean-title`, built for the
+Ubuntu 24.04 (`noble`) package boundary. The package installs the command and
+Python runtime under `/usr/bin` and `/usr/lib/dolphin-clean-title`, and the
+desktop entry under `/usr/share/applications`. It does not write a user's home
+directory and has no maintainer scripts that infer a desktop user.
+
+Build the binary package from a clean checkout with the distribution's
+`debhelper` and `dpkg-dev` packages available:
+
+```sh
+make check
+make package
+```
+
+The resulting `.deb` is written to the parent directory. Inspect it before
+installation:
+
+```sh
+dpkg-deb -I ../dolphin-clean-title_0.1.0-1_all.deb
+dpkg-deb -c ../dolphin-clean-title_0.1.0-1_all.deb
+sha256sum ../dolphin-clean-title_0.1.0-1_all.deb
+```
+
+A fresh package install is intentionally disabled. Enabling creates only the
+user-local wrapper, autostart entry, and state needed by the feature. Package
+upgrades replace system files without changing that state or starting a new
+activation. Disable the feature before removing the package; this keeps user
+cleanup explicit while allowing package removal to remain free of user-home
+maintainer scripts. Source-checkout and package installations use separate
+paths and do not overwrite each other's files. When switching from a source
+checkout to the package, uninstall the source checkout first so its user
+desktop entry does not shadow the packaged launcher; the source installer still
+refuses unmanaged collisions in its own user-local paths.
+
+## Release and PPA preparation
+
+No PPA or GitHub Release is published by this repository yet. A maintainer
+preparing a release should:
+
+1. run `make check` and `make package`;
+2. inspect package metadata, file layout, dependencies, and the generated
+   checksum;
+3. create the matching version tag and manually attach the `.deb` and checksum
+   file to a GitHub Release; and
+4. for a PPA, build a signed source package with
+   an upstream archive generated from that tag, then run
+   `dpkg-buildpackage -S -sa`, verify the resulting `.dsc` and source archive,
+   and upload the signed `.changes` file with `dput` only after a concrete
+   Launchpad PPA target exists. A reproducible archive preparation command is:
+
+   ```sh
+   git archive --format=tar --prefix=dolphin-clean-title-0.1.0/ v0.1.0 \
+     | xz -c > ../dolphin-clean-title_0.1.0.orig.tar.xz
+   dpkg-buildpackage -S -sa
+   ```
+
+   Run the archive command from the release checkout after the tag exists; it
+   must not include the `debian/` directory.
+
+The Debian changelog is the package-version source of truth. Keep the upstream
+Python version and Debian upstream version aligned; use a Debian revision such
+as `-1` for packaging-only rebuilds.
 
 ## CI and hosted infrastructure
 

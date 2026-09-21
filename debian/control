@@ -1,0 +1,29 @@
+Source: dolphin-clean-title
+Section: utils
+Priority: optional
+Maintainer: d0d1 <d0d1@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://github.com/d0d1/dolphin-clean-title
+Vcs-Git: https://github.com/d0d1/dolphin-clean-title.git
+Vcs-Browser: https://github.com/d0d1/dolphin-clean-title
+
+Package: dolphin-clean-title
+Architecture: all
+Depends:
+ dolphin,
+ gir1.2-adw-1,
+ gir1.2-gtk-4.0,
+ libadwaita-1-0,
+ libgtk-4-1,
+ libx11-6,
+ python3 (>= 3.10),
+ python3-gi,
+ systemd,
+ ${misc:Depends},
+Description: remove the Dolphin suffix from window titles
+ Dolphin Clean Title removes one trailing "— Dolphin" or "- Dolphin"
+ suffix from Dolphin window titles while leaving Dolphin itself unchanged.
+ It provides a native settings application and a user-local activation
+ workflow for X11 and XWayland sessions.

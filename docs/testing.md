@@ -57,6 +57,15 @@ collection, dynamic title cleanup, repeated installation, `--no-start`,
 uninstall restoration, and the shell command-cache case. These checks require
 the actual graphical session and are not silently substituted by unit tests.
 
+The Debian packaging verification builds the binary package with
+`dpkg-buildpackage`, inspects control metadata and the complete file layout,
+checks dependency resolution with `apt-get --simulate`, and installs/removes
+the package in an isolated reversible dpkg root when host privileges are not
+available. It verifies the packaged command path, desktop entry, fresh
+disabled state, and the absence of maintainer scripts that modify user homes.
+On a privileged release machine, repeat the same checks with a real local
+`.deb` installation and package upgrade.
+
 Every automated failure must retain the command, environment boundary, and
 captured service output needed for diagnosis. Routine user testing is not a
 substitute for these checks. When a desktop-specific behavior cannot be
