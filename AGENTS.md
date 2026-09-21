@@ -17,8 +17,8 @@ Read and follow these documents before making changes:
   environment policy.
 - [Testing](docs/testing.md) defines verification policy.
 - [Debugging](docs/debugging.md) defines diagnosis and artifact policy.
-- [Contributing](CONTRIBUTING.md) defines commit-message and documentation
-  hygiene policy.
+- [Contributing](CONTRIBUTING.md) defines commit-message and contribution
+  guidance.
 
 These documents are authoritative for their respective subjects. If a change
 would conflict with them, update the relevant policy deliberately before

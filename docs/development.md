@@ -115,16 +115,6 @@ The exact local command used by CI, if an alternative is later selected, must
 remain the source of truth for verification. Do not create CI configuration as
 part of preparatory work.
 
-## GitHub topics
-
-Choose five to ten GitHub topics that accurately describe the project as it
-currently exists. Use fewer when five strongly relevant topics cannot be
-identified. Do not add implementation-language or framework topics before
-those technologies are selected, and do not add generic topics merely to reach
-a count. Revisit topics when the supported boundary or project purpose
-changes; topics must describe the repository today, not an aspirational
-roadmap.
-
 ## Change discipline
 
 Keep implementation, packaging, documentation, and diagnostics as separate

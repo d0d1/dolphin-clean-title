@@ -138,6 +138,4 @@ does not add a runtime package dependency.
 ## Research records
 
 Temporary research belongs under the ignored `.agent/research/` directory.
-Only reviewed and durable conclusions belong in tracked documentation; public
-tracked documentation must not contain raw research notes, prompts,
-conversation history, internal prose, or temporary reasoning.
+Record durable tooling conclusions in this document.
