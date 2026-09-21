@@ -136,6 +136,13 @@ class FeatureLifecycleTests(unittest.TestCase):
         self.assertIn("Name=Dolphin Clean Title", content)
         self.assertIn(f'Exec="{wrapper}" ui', content)
         self.assertIn(f"TryExec={wrapper}", content)
+        self.assertIn("Icon=com.github.d0d1.DolphinCleanTitle", content)
+        self.assertIn(
+            "StartupWMClass=com.github.d0d1.DolphinCleanTitle", content
+        )
+        self.assertIn(
+            "X-GNOME-Application-ID=com.github.d0d1.DolphinCleanTitle", content
+        )
         self.assertEqual(
             feature.REPORT_URL,
             "https://github.com/d0d1/dolphin-clean-title/issues/new",

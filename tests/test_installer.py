@@ -16,6 +16,8 @@ assert SPEC.loader is not None
 sys.modules[SPEC.name] = installer
 SPEC.loader.exec_module(installer)
 
+APPLICATION_DESKTOP = installer.feature.DESKTOP_FILE_NAME
+
 
 @unittest.skipUnless(os.environ.get("DISPLAY"), "an X11 display is required")
 class InstallerTests(unittest.TestCase):
@@ -69,17 +71,18 @@ class InstallerTests(unittest.TestCase):
             self.assertTrue((root / "current").is_symlink())
             wrapper = Path(home) / ".local" / "bin" / "dolphin-clean-title"
             dolphin_wrapper = Path(home) / ".local" / "bin" / "dolphin"
-            desktop = Path(env["XDG_CONFIG_HOME"]) / "autostart" / "dolphin-clean-title.desktop"
+            desktop = Path(env["XDG_CONFIG_HOME"]) / "autostart" / APPLICATION_DESKTOP
             application = (
                 Path(env["XDG_DATA_HOME"])
                 / "applications"
-                / "dolphin-clean-title.desktop"
+                / APPLICATION_DESKTOP
             )
             self.assertIn(sys.executable, wrapper.read_text(encoding="utf-8"))
             wrapper_text = dolphin_wrapper.read_text(encoding="utf-8")
             self.assertIn("dolphin-clean-title-dolphin-wrapper-managed", wrapper_text)
             self.assertIn("systemd-run --user", wrapper_text)
-            self.assertIn("/usr/bin/dolphin \"$@\"", wrapper_text)
+            self.assertIn("DOLPHIN_EXECUTABLE=/usr/bin/dolphin", wrapper_text)
+            self.assertIn('exec "$DOLPHIN_EXECUTABLE" "$@"', wrapper_text)
             self.assertEqual(
                 subprocess.run(
                     [str(wrapper), "--version"],
@@ -157,10 +160,10 @@ class InstallerTests(unittest.TestCase):
             )
             self.assertFalse(Path(home, ".local", "bin", "dolphin").exists())
             self.assertFalse(
-                Path(env["XDG_CONFIG_HOME"], "autostart", "dolphin-clean-title.desktop").exists()
+                Path(env["XDG_CONFIG_HOME"], "autostart", APPLICATION_DESKTOP).exists()
             )
             self.assertTrue(
-                Path(env["XDG_DATA_HOME"], "applications", "dolphin-clean-title.desktop").exists()
+                Path(env["XDG_DATA_HOME"], "applications", APPLICATION_DESKTOP).exists()
             )
             subprocess.run(
                 ["sh", str(ROOT / "uninstall.sh")],
@@ -268,7 +271,7 @@ class InstallerTests(unittest.TestCase):
             desktop = (
                 Path(env["XDG_CONFIG_HOME"])
                 / "autostart"
-                / "dolphin-clean-title.desktop"
+                / APPLICATION_DESKTOP
             )
             before_target = os.readlink(current)
             before_wrapper = wrapper.read_bytes()
@@ -390,7 +393,7 @@ class InstallerTests(unittest.TestCase):
             launcher = (
                 Path(env["XDG_DATA_HOME"])
                 / "applications"
-                / "dolphin-clean-title.desktop"
+                / APPLICATION_DESKTOP
             )
             launcher.parent.mkdir(parents=True, exist_ok=True)
             launcher.write_text("[Desktop Entry]\nName=Other App\n", encoding="utf-8")
@@ -447,7 +450,7 @@ class InstallerTests(unittest.TestCase):
             desktop = (
                 Path(env["XDG_CONFIG_HOME"])
                 / "autostart"
-                / "dolphin-clean-title.desktop"
+                / APPLICATION_DESKTOP
             )
             before_target = os.readlink(current)
             before_wrapper = wrapper.read_bytes()

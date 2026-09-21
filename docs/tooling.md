@@ -81,6 +81,13 @@ development or verification.
   These are compatibility evidence, not hard pins; the authoritative package
   metadata is the [Ubuntu package index](https://packages.ubuntu.com/noble/).
   The package does not vendor or install Python packages from the network.
+- The settings application uses the stable reverse-DNS identity
+  `com.github.d0d1.DolphinCleanTitle` for its `Adw.Application`, desktop entry,
+  icon basename, and AppStream component. This follows the [GNOME application
+  ID guidance](https://developer.gnome.org/documentation/tutorials/application-id.html)
+  and the [freedesktop Desktop Entry specification](https://specifications.freedesktop.org/desktop-entry/latest-single/);
+  the GitHub namespace is appropriate because no owned project domain is
+  established.
 - Debian packaging uses `dpkg-buildpackage`, `dpkg-deb`, and debhelper
   compatibility level 13. The [Debian Maintainer Guide](https://www.debian.org/doc/manuals/maint-guide/dreq.en.html),
   [Debian Policy control fields](https://www.debian.org/doc/debian-policy/ch-controlfields.html),

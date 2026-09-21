@@ -248,8 +248,8 @@ def _service_wrapper_content(root: Path, python_executable: str) -> str:
     return service_wrapper_content(root, python_executable)
 
 
-def _dolphin_wrapper_content() -> str:
-    return dolphin_wrapper_content()
+def _dolphin_wrapper_content(**paths: Path) -> str:
+    return dolphin_wrapper_content(**paths)
 
 
 def _desktop_content(wrapper: Path) -> str:

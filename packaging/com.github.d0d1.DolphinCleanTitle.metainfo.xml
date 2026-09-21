@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.github.d0d1.DolphinCleanTitle</id>
+  <name>Dolphin Clean Title</name>
+  <summary>Remove the Dolphin suffix from window titles</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <description>
+    <p>Remove one trailing Dolphin suffix from Dolphin window titles without modifying Dolphin or depending on a specific taskbar.</p>
+  </description>
+  <launchable type="desktop-id">com.github.d0d1.DolphinCleanTitle.desktop</launchable>
+  <icon type="stock">com.github.d0d1.DolphinCleanTitle</icon>
+  <url type="homepage">https://github.com/d0d1/dolphin-clean-title</url>
+  <categories>
+    <category>Settings</category>
+  </categories>
+</component>

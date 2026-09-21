@@ -1,3 +1,5 @@
 packaging/dolphin-clean-title usr/bin
-packaging/dolphin-clean-title.desktop usr/share/applications
+packaging/com.github.d0d1.DolphinCleanTitle.desktop usr/share/applications
+packaging/com.github.d0d1.DolphinCleanTitle.metainfo.xml usr/share/metainfo
+packaging/com.github.d0d1.DolphinCleanTitle.svg usr/share/icons/hicolor/scalable/apps
 src/dolphin_clean_title/*.py usr/lib/dolphin-clean-title/dolphin_clean_title

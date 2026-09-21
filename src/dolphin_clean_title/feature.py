@@ -12,7 +12,15 @@ from threading import Lock
 from typing import Mapping
 
 from .environment import EnvironmentError, validate_x11_session
-from .paths import APP_NAME, log_path, pid_path, state_dir
+from .paths import (
+    APP_ID,
+    APP_NAME,
+    DESKTOP_FILE_NAME,
+    ICON_NAME,
+    log_path,
+    pid_path,
+    state_dir,
+)
 from .x11 import X11Connection, X11Unavailable
 
 MANAGED_MARKER = "# dolphin-clean-title-managed"
@@ -96,11 +104,11 @@ def dolphin_path() -> Path:
 
 
 def autostart_path() -> Path:
-    return config_home() / "autostart" / f"{APP_NAME}.desktop"
+    return config_home() / "autostart" / DESKTOP_FILE_NAME
 
 
 def application_desktop_path() -> Path:
-    return data_home() / "applications" / f"{APP_NAME}.desktop"
+    return data_home() / "applications" / DESKTOP_FILE_NAME
 
 
 def feature_state_path() -> Path:
@@ -208,13 +216,36 @@ exec "$PYTHON" -m dolphin_clean_title "$@"
 """
 
 
-def dolphin_wrapper_content() -> str:
+def dolphin_wrapper_content(
+    *,
+    system_command: Path | None = None,
+    user_command: Path | None = None,
+    dolphin_executable: Path | None = None,
+    cgroup_file: Path | None = None,
+) -> str:
+    from shlex import quote
+
+    system_command = system_command or system_command_path()
+    user_command = user_command or bin_path()
+    dolphin_executable = dolphin_executable or Path("/usr/bin/dolphin")
+    cgroup_file = cgroup_file or Path("/proc/self/cgroup")
+
     return f'''#!/bin/sh
 {DOLPHIN_WRAPPER_MARKER}
 set -eu
 
-if [ ! -r /proc/self/cgroup ]; then
-    echo "dolphin-clean-title: cannot inspect /proc/self/cgroup; refusing to launch Dolphin" >&2
+SYSTEM_COMMAND={quote(str(system_command))}
+USER_COMMAND={quote(str(user_command))}
+DOLPHIN_EXECUTABLE={quote(str(dolphin_executable))}
+CGROUP_FILE={quote(str(cgroup_file))}
+
+# Package removal must not leave the user's Dolphin launcher forcing XCB.
+if [ ! -x "$SYSTEM_COMMAND" ] && [ ! -x "$USER_COMMAND" ]; then
+    exec "$DOLPHIN_EXECUTABLE" "$@"
+fi
+
+if [ ! -r "$CGROUP_FILE" ]; then
+    echo "dolphin-clean-title: cannot inspect $CGROUP_FILE; refusing to launch Dolphin" >&2
     exit 2
 fi
 
@@ -226,12 +257,12 @@ while IFS= read -r cgroup_line; do
             break
             ;;
     esac
-done < /proc/self/cgroup
+done < "$CGROUP_FILE"
 
 if $in_filemanager_service; then
     unit="dolphin-clean-title-window-$(date +%s%N)-$$"
     if output=$(systemd-run --user --unit="$unit" --collect --no-block \\
-        --setenv=QT_QPA_PLATFORM=xcb /usr/bin/dolphin "$@" 2>&1); then
+        --setenv=QT_QPA_PLATFORM=xcb "$DOLPHIN_EXECUTABLE" "$@" 2>&1); then
         exit 0
     else
         status=$?
@@ -242,7 +273,7 @@ if $in_filemanager_service; then
 fi
 
 export QT_QPA_PLATFORM=xcb
-exec /usr/bin/dolphin "$@"
+exec "$DOLPHIN_EXECUTABLE" "$@"
 '''
 
 
@@ -266,10 +297,12 @@ Name=Dolphin Clean Title
 Comment=Configure Dolphin title cleaning
 Exec={_desktop_exec(wrapper)} ui
 TryExec={_desktop_try_exec(wrapper)}
-Icon=preferences-system
+Icon={ICON_NAME}
 Terminal=false
 Categories=Utility;Settings;
 StartupNotify=true
+StartupWMClass={APP_ID}
+X-GNOME-Application-ID={APP_ID}
 {DESKTOP_MARKER}
 """
 

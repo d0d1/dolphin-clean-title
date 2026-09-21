@@ -22,16 +22,9 @@ tool installed.
 
 ## Install
 
-The supported distribution format is a Debian package for Ubuntu 24.04 LTS.
-No PPA or public release artifact has been published yet, so there is currently
-no end-user download command to provide. The repository's source installer is
-reserved for development and is not the normal installation path.
+Dolphin Clean Title is preparing its first packaged release for Ubuntu 24.04 LTS.
 
-When a release `.deb` is available, install the downloaded package with:
-
-```sh
-sudo apt install ./dolphin-clean-title_0.1.0-1_all.deb
-```
+For development and source-build instructions, see [Development and packaging](docs/development.md).
 
 ## Use
 
@@ -54,7 +47,7 @@ Wayland sessions without XWayland are outside the supported boundary.
 
 ## Uninstall
 
-Disable the feature first, then remove the package:
+Disabling the feature first is the cleanest removal path:
 
 ```sh
 dolphin-clean-title disable
@@ -62,8 +55,11 @@ sudo apt remove dolphin-clean-title
 ```
 
 The package does not run maintainer scripts that modify a user's home
-directory. Disabling first removes the user-local wrapper, autostart entry, and
-cleaner process; package removal then removes the system application and CLI.
+directory. If the package is removed while the feature is enabled, the
+remaining user-local Dolphin wrapper detects that the packaged runtime is gone
+and falls back to ordinary `/usr/bin/dolphin` launches. Reinstalling the
+package restores the packaged runtime without replacing the user's activation
+state.
 
 ## Privacy and external services
 

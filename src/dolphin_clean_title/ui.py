@@ -12,6 +12,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Adw, Gio, GLib, Gtk
 
 from . import feature
+from .paths import APP_ID
 
 
 class SettingsWindow(Adw.ApplicationWindow):
@@ -159,7 +160,7 @@ class SettingsWindow(Adw.ApplicationWindow):
 
 class SettingsApplication(Adw.Application):
     def __init__(self) -> None:
-        super().__init__(application_id="com.d0d1.DolphinCleanTitle", flags=0)
+        super().__init__(application_id=APP_ID, flags=0)
 
     def do_activate(self) -> None:
         window = self.get_active_window()

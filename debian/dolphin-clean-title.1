@@ -1,0 +1,47 @@
+.TH DOLPHIN-CLEAN-TITLE 1 "September 2026" "Dolphin Clean Title 0.1.0" "User Commands"
+.SH NAME
+dolphin-clean-title \- remove the Dolphin suffix from X11 window titles
+.SH SYNOPSIS
+.B dolphin-clean-title
+.RB [ \-\-background | \-\-foreground | \-\-stop | \-\-status | \-\-diagnose | ui ]
+.br
+.B dolphin-clean-title
+.RB { enable | disable | status }
+.SH DESCRIPTION
+.B dolphin-clean-title
+rewrites a matching trailing \(em Dolphin or - Dolphin suffix from Dolphin
+window titles before X11 window lists and taskbars display them.
+.PP
+The feature uses a user-local Dolphin launcher and an X11/XWayland title
+cleaner. It does not modify Dolphin or third-party desktop components.
+.SH COMMANDS
+.TP
+.B enable
+Enable title cleaning and persist the choice.
+.TP
+.B disable
+Disable title cleaning and remove user-local activation files.
+.TP
+.B status
+Report whether the feature is enabled.
+.TP
+.B ui
+Open the settings application.
+.SH SERVICE OPTIONS
+.TP
+.B \-\-background
+Start the cleaner in the background.
+.TP
+.B \-\-foreground
+Run the cleaner in the foreground.
+.TP
+.B \-\-stop
+Stop the running cleaner.
+.TP
+.B \-\-diagnose
+Print environment and runtime diagnostics.
+.SH FILES
+The user-local installation stores its state below the XDG data, config, and
+state directories and uses ~/.local/bin for its commands and Dolphin wrapper.
+.SH SEE ALSO
+.BR dolphin (1)

@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Mapping
 
 APP_NAME = "dolphin-clean-title"
+APP_ID = "com.github.d0d1.DolphinCleanTitle"
+DESKTOP_FILE_NAME = f"{APP_ID}.desktop"
+ICON_NAME = APP_ID
 
 
 def state_dir(env: Mapping[str, str] | None = None) -> Path:
