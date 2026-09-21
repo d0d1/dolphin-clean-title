@@ -415,8 +415,9 @@ def _activation_kind(path: Path) -> str:
     return "managed" if is_managed(path) else "collision"
 
 
-def _activation_state() -> bool:
-    kinds = (_activation_kind(dolphin_path()), _activation_kind(autostart_path()))
+def _activation_state(autostart: Path | None = None) -> bool:
+    activation_entry = autostart or autostart_path()
+    kinds = (_activation_kind(dolphin_path()), _activation_kind(activation_entry))
     if "collision" in kinds:
         raise FeatureError("a non-managed Dolphin activation file blocks this change")
     if kinds == ("managed", "managed"):
@@ -597,9 +598,21 @@ def install_state_default() -> bool:
     if configured is not None:
         return configured
     # Older releases had no state file but always installed both activation
-    # paths. A new checkout with no activation paths is a fresh enabled install.
-    if os.path.lexists(dolphin_path()) or os.path.lexists(autostart_path()):
-        return _activation_state()
+    # paths. Recognize either filename while migrating, but reject an
+    # ambiguous layout rather than choosing one activation entry silently.
+    current_autostart = autostart_path()
+    legacy_autostart = legacy_autostart_path()
+    if os.path.lexists(current_autostart) and os.path.lexists(legacy_autostart):
+        raise FeatureError(
+            "managed Dolphin activation has both current and legacy autostart entries"
+        )
+    if os.path.lexists(current_autostart):
+        return _activation_state(current_autostart)
+    if os.path.lexists(legacy_autostart):
+        return _activation_state(legacy_autostart)
+    if os.path.lexists(dolphin_path()):
+        return _activation_state(current_autostart)
+    # A new checkout with no activation paths is a fresh enabled install.
     return True
 
 

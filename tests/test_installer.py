@@ -174,6 +174,65 @@ class InstallerTests(unittest.TestCase):
                 text=True,
             )
 
+    def test_install_migrates_pre_state_legacy_installation(self):
+        with tempfile.TemporaryDirectory() as home:
+            env = self._environment(home)
+            user_bin = Path(home) / ".local" / "bin"
+            dolphin_wrapper = user_bin / "dolphin"
+            legacy_autostart = (
+                Path(env["XDG_CONFIG_HOME"]) / "autostart" / LEGACY_DESKTOP
+            )
+            legacy_application = (
+                Path(env["XDG_DATA_HOME"]) / "applications" / LEGACY_DESKTOP
+            )
+            command = user_bin / "dolphin-clean-title"
+            dolphin_wrapper.parent.mkdir(parents=True, exist_ok=True)
+            dolphin_wrapper.write_text(
+                installer._dolphin_wrapper_content(), encoding="utf-8"
+            )
+            legacy_autostart.parent.mkdir(parents=True, exist_ok=True)
+            legacy_autostart.write_text(
+                installer.feature.autostart_content(command), encoding="utf-8"
+            )
+            legacy_application.parent.mkdir(parents=True, exist_ok=True)
+            legacy_application.write_text(
+                installer.feature.application_desktop_content(command),
+                encoding="utf-8",
+            )
+            self.assertFalse(
+                Path(env["XDG_STATE_HOME"], "dolphin-clean-title", "feature-state").exists()
+            )
+
+            refreshed = subprocess.run(
+                ["sh", str(ROOT / "install.sh"), "--no-start"],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(refreshed.returncode, 0, refreshed.stderr)
+            self.assertTrue(
+                (Path(home) / ".local" / "bin" / "dolphin").exists()
+            )
+            self.assertTrue(
+                Path(env["XDG_CONFIG_HOME"], "autostart", APPLICATION_DESKTOP).exists()
+            )
+            self.assertTrue(
+                Path(env["XDG_DATA_HOME"], "applications", APPLICATION_DESKTOP).exists()
+            )
+            self.assertFalse(legacy_autostart.exists())
+            self.assertFalse(legacy_application.exists())
+            state = Path(env["XDG_STATE_HOME"], "dolphin-clean-title", "feature-state")
+            self.assertEqual(state.read_text(encoding="utf-8").splitlines()[-1], "enabled")
+            subprocess.run(
+                ["sh", str(ROOT / "uninstall.sh")],
+                cwd=ROOT,
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
     def test_uninstall_removes_managed_legacy_desktop_entries(self):
         with tempfile.TemporaryDirectory() as home:
             env = self._environment(home)
@@ -213,22 +272,15 @@ class InstallerTests(unittest.TestCase):
             legacy_autostart.write_text("[Desktop Entry]\nName=Unmanaged\n", encoding="utf-8")
             legacy_application.write_text("[Desktop Entry]\nName=Unmanaged\n", encoding="utf-8")
 
-            installed = subprocess.run(
+            attempted = subprocess.run(
                 ["sh", str(ROOT / "install.sh"), "--no-start"],
                 cwd=ROOT,
                 env=env,
                 capture_output=True,
                 text=True,
             )
-            self.assertEqual(installed.returncode, 0, installed.stderr)
-            subprocess.run(
-                ["sh", str(ROOT / "uninstall.sh")],
-                cwd=ROOT,
-                env=env,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
+            self.assertNotEqual(attempted.returncode, 0)
+            self.assertIn("blocks this change", attempted.stderr)
             self.assertEqual(legacy_autostart.read_text(encoding="utf-8"), "[Desktop Entry]\nName=Unmanaged\n")
             self.assertEqual(legacy_application.read_text(encoding="utf-8"), "[Desktop Entry]\nName=Unmanaged\n")
 
