@@ -27,6 +27,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         preferences_group = Adw.PreferencesGroup()
         self._switch_row = Adw.SwitchRow(
             title='Remove “— Dolphin” from titles',
+            subtitle="Applies to newly opened Dolphin windows.",
         )
         self._switch_row.set_visible(False)
         self._switch_row.connect("notify::active", self._on_switch_changed)
