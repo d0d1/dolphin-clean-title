@@ -79,8 +79,7 @@ user-local paths.
 
 ## Release and PPA preparation
 
-No PPA or GitHub Release is published by this repository yet. A maintainer
-preparing a release should:
+A maintainer preparing a release should:
 
 1. run `make check` and `make package`;
 2. inspect package metadata, file layout, dependencies, and the generated

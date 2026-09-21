@@ -14,19 +14,19 @@ taskbar.
 
 ## Install
 
-Dolphin Clean Title is preparing its first packaged release for Ubuntu 24.04 LTS.
+Download the latest `.deb` from [GitHub Releases](https://github.com/d0d1/dolphin-clean-title/releases) and install it:
 
-For development and source-build instructions, see [Development and packaging](docs/development.md).
+```bash
+sudo apt install ./dolphin-clean-title_0.1.0-1_all.deb
+```
 
 ## Use
 
-Open `Dolphin Clean Title` from the application launcher and enable the switch.
-Then launch Dolphin normally from the launcher, a terminal, a directory opener,
-or FileManager1. The title cleaner starts automatically for the session.
+Open **Dolphin Clean Title** from the application launcher and enable the switch.
 
 To disable the feature, turn the switch off or run:
 
-```sh
+```
 dolphin-clean-title disable
 ```
 
@@ -39,20 +39,10 @@ Wayland sessions without XWayland are outside the supported boundary.
 
 ## Uninstall
 
-Disabling the feature first is the cleanest removal path, but removal while it
-is enabled is also safe:
-
-```sh
+```bash
 dolphin-clean-title disable
 sudo apt remove dolphin-clean-title
 ```
-
-The package does not run maintainer scripts that modify a user's home
-directory. If the package is removed while the feature is enabled, the
-running packaged cleaner detects that its runtime is gone and stops; the
-remaining user-local Dolphin wrapper also falls back to ordinary
-`/usr/bin/dolphin` launches. Reinstalling the package restores the packaged
-runtime without replacing the user's activation state.
 
 ## Privacy and external services
 
@@ -62,9 +52,6 @@ runtime without replacing the user's activation state.
 - No account requirement
 - No payments or subscriptions
 - No external service dependencies at runtime
-
-The optional `Report a Problem` action only delegates an explicitly requested
-issue page to the default browser; the application itself makes no request.
 
 ## Docs
 
