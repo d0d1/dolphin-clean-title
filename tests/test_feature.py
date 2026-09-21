@@ -65,6 +65,60 @@ class FeatureLifecycleTests(unittest.TestCase):
                     self.assertTrue(feature.enable().enabled)
                 run_service.assert_not_called()
 
+    def test_reconcile_preserved_enabled_state_after_reinstall_starts_service(self):
+        with tempfile.TemporaryDirectory() as home:
+            env = self._environment(home)
+            with mock.patch.dict(os.environ, env, clear=False):
+                self._install_runtime(env, enabled=True)
+                with mock.patch.object(
+                    feature, "validate_activation_environment"
+                ) as validate:
+                    with mock.patch.object(
+                        feature,
+                        "_run_service",
+                        return_value=subprocess.CompletedProcess([], 0, "", ""),
+                    ) as run_service:
+                        with mock.patch.object(
+                            feature, "_service_running", return_value=False
+                        ):
+                            with mock.patch.object(feature, "_wait_for_service"):
+                                status = feature.reconcile()
+
+                self.assertTrue(status.enabled)
+                validate.assert_called_once_with()
+                run_service.assert_called_once_with("--background")
+
+    def test_reconcile_disabled_state_does_not_start_service(self):
+        with tempfile.TemporaryDirectory() as home:
+            env = self._environment(home)
+            with mock.patch.dict(os.environ, env, clear=False):
+                self._install_runtime(env, enabled=False)
+                with mock.patch.object(
+                    feature, "validate_activation_environment"
+                ) as validate:
+                    with mock.patch.object(feature, "_run_service") as run_service:
+                        status = feature.reconcile()
+
+                self.assertFalse(status.enabled)
+                validate.assert_not_called()
+                run_service.assert_not_called()
+
+    def test_reconcile_failure_does_not_report_operational_state(self):
+        with tempfile.TemporaryDirectory() as home:
+            env = self._environment(home)
+            with mock.patch.dict(os.environ, env, clear=False):
+                self._install_runtime(env, enabled=True)
+                failed = subprocess.CompletedProcess([], 1, "", "startup failed")
+                with mock.patch.object(feature, "validate_activation_environment"):
+                    with mock.patch.object(feature, "_run_service", return_value=failed):
+                        with mock.patch.object(
+                            feature, "_service_running", return_value=False
+                        ):
+                            with self.assertRaisesRegex(
+                                feature.FeatureError, "could not start"
+                            ):
+                                feature.reconcile()
+
     def test_disable_from_enabled_and_is_idempotent(self):
         with tempfile.TemporaryDirectory() as home:
             env = self._environment(home)

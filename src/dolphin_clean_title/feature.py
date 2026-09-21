@@ -481,6 +481,19 @@ def _wait_for_service(timeout: float = 5.0) -> None:
     raise FeatureError("the cleaner service did not become ready")
 
 
+def _ensure_service_running() -> None:
+    if _service_running():
+        return
+    validate_activation_environment()
+    started = _run_service("--background")
+    if started.returncode != 0:
+        raise FeatureError(
+            "the cleaner service could not start: "
+            f"{started.stderr.strip() or started.stdout.strip()}"
+        )
+    _wait_for_service()
+
+
 def _stop_after_failed_enable() -> None:
     if not _service_running():
         return
@@ -495,15 +508,7 @@ def enable() -> FeatureStatus:
     with _TRANSITION_LOCK:
         current = status()
         if current.enabled:
-            if not _service_running():
-                validate_activation_environment()
-                started = _run_service("--background")
-                if started.returncode != 0:
-                    raise FeatureError(
-                        "the cleaner service could not start: "
-                        f"{started.stderr.strip() or started.stdout.strip()}"
-                    )
-                _wait_for_service()
+            _ensure_service_running()
             return status()
 
         validate_activation_environment()
@@ -589,6 +594,17 @@ def disable() -> FeatureStatus:
                     f"disable failed ({exc}); rollback also failed: {rollback_error}"
                 ) from rollback_error
             raise FeatureError(f"disable failed; previous state restored: {exc}") from exc
+
+
+def reconcile() -> FeatureStatus:
+    """Restore an enabled cleaner service before reporting settings state."""
+
+    with _TRANSITION_LOCK:
+        current = status()
+        if not current.enabled:
+            return current
+        _ensure_service_running()
+        return status()
 
 
 def install_state_default() -> bool:

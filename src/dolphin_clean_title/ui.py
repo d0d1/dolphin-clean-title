@@ -57,7 +57,7 @@ class SettingsWindow(Adw.ApplicationWindow):
 
         def load() -> None:
             try:
-                result = (feature.status(), None)
+                result = (feature.reconcile(), None)
             except feature.FeatureError as exc:
                 result = (None, str(exc))
             GLib.idle_add(self._finish_status_load, result)
