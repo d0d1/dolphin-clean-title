@@ -17,6 +17,7 @@ sys.modules[SPEC.name] = installer
 SPEC.loader.exec_module(installer)
 
 APPLICATION_DESKTOP = installer.feature.DESKTOP_FILE_NAME
+LEGACY_DESKTOP = installer.feature.LEGACY_DESKTOP_FILE_NAME
 
 
 @unittest.skipUnless(os.environ.get("DISPLAY"), "an X11 display is required")
@@ -77,6 +78,14 @@ class InstallerTests(unittest.TestCase):
                 / "applications"
                 / APPLICATION_DESKTOP
             )
+            icon = (
+                Path(env["XDG_DATA_HOME"])
+                / "icons"
+                / "hicolor"
+                / "scalable"
+                / "apps"
+                / f"{installer.feature.ICON_NAME}.svg"
+            )
             self.assertIn(sys.executable, wrapper.read_text(encoding="utf-8"))
             wrapper_text = dolphin_wrapper.read_text(encoding="utf-8")
             self.assertIn("dolphin-clean-title-dolphin-wrapper-managed", wrapper_text)
@@ -94,6 +103,11 @@ class InstallerTests(unittest.TestCase):
             )
             self.assertTrue(desktop.exists())
             self.assertTrue(application.exists())
+            self.assertTrue(icon.exists())
+            self.assertIn(
+                installer.feature.ICON_MARKER,
+                icon.read_text(encoding="utf-8"),
+            )
             desktop_text = desktop.read_text(encoding="utf-8")
             self.assertIn("X-Dolphin-Clean-Title-Managed=true", desktop_text)
             self.assertIn(f'Exec="{wrapper}"', desktop_text)
@@ -117,6 +131,106 @@ class InstallerTests(unittest.TestCase):
             self.assertFalse(dolphin_wrapper.exists())
             self.assertFalse(desktop.exists())
             self.assertFalse(application.exists())
+            self.assertFalse(icon.exists())
+
+    def test_install_migrates_managed_legacy_desktop_entries(self):
+        with tempfile.TemporaryDirectory() as home:
+            env = self._environment(home)
+            installed = subprocess.run(
+                ["sh", str(ROOT / "install.sh"), "--no-start"],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(installed.returncode, 0, installed.stderr)
+            autostart = Path(env["XDG_CONFIG_HOME"]) / "autostart"
+            applications = Path(env["XDG_DATA_HOME"]) / "applications"
+            current_autostart = autostart / APPLICATION_DESKTOP
+            current_application = applications / APPLICATION_DESKTOP
+            legacy_autostart = autostart / LEGACY_DESKTOP
+            legacy_application = applications / LEGACY_DESKTOP
+            current_autostart.rename(legacy_autostart)
+            current_application.rename(legacy_application)
+
+            refreshed = subprocess.run(
+                ["sh", str(ROOT / "install.sh"), "--no-start"],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(refreshed.returncode, 0, refreshed.stderr)
+            self.assertTrue(current_autostart.exists())
+            self.assertTrue(current_application.exists())
+            self.assertFalse(legacy_autostart.exists())
+            self.assertFalse(legacy_application.exists())
+            subprocess.run(
+                ["sh", str(ROOT / "uninstall.sh")],
+                cwd=ROOT,
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+    def test_uninstall_removes_managed_legacy_desktop_entries(self):
+        with tempfile.TemporaryDirectory() as home:
+            env = self._environment(home)
+            installed = subprocess.run(
+                ["sh", str(ROOT / "install.sh"), "--no-start"],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(installed.returncode, 0, installed.stderr)
+            autostart = Path(env["XDG_CONFIG_HOME"]) / "autostart"
+            applications = Path(env["XDG_DATA_HOME"]) / "applications"
+            (autostart / APPLICATION_DESKTOP).rename(autostart / LEGACY_DESKTOP)
+            (applications / APPLICATION_DESKTOP).rename(applications / LEGACY_DESKTOP)
+
+            uninstalled = subprocess.run(
+                ["sh", str(ROOT / "uninstall.sh")],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(uninstalled.returncode, 0, uninstalled.stderr)
+            self.assertFalse((autostart / LEGACY_DESKTOP).exists())
+            self.assertFalse((applications / LEGACY_DESKTOP).exists())
+
+    def test_unmanaged_legacy_desktop_entries_are_preserved(self):
+        with tempfile.TemporaryDirectory() as home:
+            env = self._environment(home)
+            autostart = Path(env["XDG_CONFIG_HOME"]) / "autostart"
+            applications = Path(env["XDG_DATA_HOME"]) / "applications"
+            legacy_autostart = autostart / LEGACY_DESKTOP
+            legacy_application = applications / LEGACY_DESKTOP
+            legacy_autostart.parent.mkdir(parents=True, exist_ok=True)
+            legacy_application.parent.mkdir(parents=True, exist_ok=True)
+            legacy_autostart.write_text("[Desktop Entry]\nName=Unmanaged\n", encoding="utf-8")
+            legacy_application.write_text("[Desktop Entry]\nName=Unmanaged\n", encoding="utf-8")
+
+            installed = subprocess.run(
+                ["sh", str(ROOT / "install.sh"), "--no-start"],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(installed.returncode, 0, installed.stderr)
+            subprocess.run(
+                ["sh", str(ROOT / "uninstall.sh")],
+                cwd=ROOT,
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(legacy_autostart.read_text(encoding="utf-8"), "[Desktop Entry]\nName=Unmanaged\n")
+            self.assertEqual(legacy_application.read_text(encoding="utf-8"), "[Desktop Entry]\nName=Unmanaged\n")
 
     def test_disabled_state_survives_reinstall(self):
         with tempfile.TemporaryDirectory() as home:
@@ -406,6 +520,29 @@ class InstallerTests(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("refusing to overwrite non-managed application launcher", result.stderr)
+
+    def test_install_refuses_nonmanaged_application_icon(self):
+        with tempfile.TemporaryDirectory() as home:
+            env = self._environment(home)
+            icon = (
+                Path(env["XDG_DATA_HOME"])
+                / "icons"
+                / "hicolor"
+                / "scalable"
+                / "apps"
+                / f"{installer.feature.ICON_NAME}.svg"
+            )
+            icon.parent.mkdir(parents=True, exist_ok=True)
+            icon.write_text("not the managed icon\n", encoding="utf-8")
+            result = subprocess.run(
+                ["sh", str(ROOT / "install.sh"), "--no-start"],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("refusing to overwrite non-managed application icon", result.stderr)
 
     def test_transient_units_are_stopped_and_collected(self):
         unit = "dolphin-clean-title-window-123-456.service"

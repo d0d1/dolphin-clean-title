@@ -47,7 +47,8 @@ Wayland sessions without XWayland are outside the supported boundary.
 
 ## Uninstall
 
-Disabling the feature first is the cleanest removal path:
+Disabling the feature first is the cleanest removal path, but removal while it
+is enabled is also safe:
 
 ```sh
 dolphin-clean-title disable

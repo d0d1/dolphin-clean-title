@@ -16,6 +16,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_PACKAGE = PROJECT_ROOT / "src" / "dolphin_clean_title"
+ICON_SOURCE = PROJECT_ROOT / "packaging" / "com.github.d0d1.DolphinCleanTitle.svg"
 APP_NAME = "dolphin-clean-title"
 DATA_MARKER = "managed-by-dolphin-clean-title"
 RELEASE_RETENTION = 3
@@ -69,6 +70,25 @@ def dolphin_path() -> Path:
 
 def desktop_path() -> Path:
     return feature.autostart_path()
+
+
+def application_icon_path() -> Path:
+    return feature.application_icon_path()
+
+
+def _legacy_desktop_paths() -> dict[str, Path]:
+    return {
+        "legacy_desktop": feature.legacy_autostart_path(),
+        "legacy_application_desktop": feature.legacy_application_desktop_path(),
+    }
+
+
+def _managed_legacy_desktop_paths() -> dict[str, Path]:
+    return {
+        name: path
+        for name, path in _legacy_desktop_paths().items()
+        if os.path.lexists(path) and _is_managed(path)
+    }
 
 
 def _path_entry(path_entry: str) -> str:
@@ -504,11 +524,14 @@ def install(start_service: bool = True) -> int:
     dolphin_wrapper = dolphin_path()
     desktop = desktop_path()
     application_desktop = application_desktop_path()
+    application_icon = application_icon_path()
     state = feature_state_path()
     _assert_managed_or_absent(wrapper, "binary")
     _assert_managed_or_absent(dolphin_wrapper, "Dolphin wrapper")
     _assert_managed_or_absent(desktop, "autostart entry")
     _assert_managed_or_absent(application_desktop, "application launcher")
+    _assert_managed_or_absent(application_icon, "application icon")
+    legacy_managed = _managed_legacy_desktop_paths()
     _assert_managed_or_absent(state, "feature state")
     try:
         preserve_enabled = install_state_default()
@@ -533,10 +556,12 @@ def install(start_service: bool = True) -> int:
         "dolphin_wrapper": dolphin_wrapper,
         "desktop": desktop,
         "application_desktop": application_desktop,
+        "application_icon": application_icon,
         "state": state,
         "marker": root / ".managed",
         "current": root / "current",
     }
+    activation_paths.update(legacy_managed)
     snapshots = {name: _snapshot(path) for name, path in activation_paths.items()}
     root.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     releases.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -572,6 +597,11 @@ def install(start_service: bool = True) -> int:
             application_desktop_content(wrapper),
             0o644,
         )
+        _atomic_write(
+            application_icon,
+            ICON_SOURCE.read_text(encoding="utf-8"),
+            0o644,
+        )
         if preserve_enabled:
             _atomic_write(dolphin_wrapper, _dolphin_wrapper_content(), 0o755)
             _atomic_write(desktop, _desktop_content(wrapper), 0o644)
@@ -581,6 +611,8 @@ def install(start_service: bool = True) -> int:
         write_install_state(preserve_enabled)
         _atomic_write(root / ".managed", f"{DATA_MARKER}\n", 0o600)
         os.replace(current_temporary, current)
+        for path in legacy_managed.values():
+            path.unlink()
     except (InstallationError, OSError) as exc:
         try:
             _rollback_activation(
@@ -652,7 +684,9 @@ def uninstall() -> int:
     dolphin_wrapper = dolphin_path()
     desktop = desktop_path()
     application_desktop = application_desktop_path()
+    application_icon = application_icon_path()
     state = feature_state_path()
+    legacy_paths = _legacy_desktop_paths()
     if os.path.lexists(wrapper) and _is_managed(wrapper):
         stopped = _run_wrapper(wrapper, "--stop")
         if stopped.returncode != 0:
@@ -677,10 +711,18 @@ def uninstall() -> int:
     elif os.path.lexists(desktop):
         print(f"preserving non-managed file {_display_path(desktop)}")
 
-    if os.path.lexists(application_desktop) and _is_managed(application_desktop):
-        application_desktop.unlink()
-    elif os.path.lexists(application_desktop):
-        print(f"preserving non-managed file {_display_path(application_desktop)}")
+    for path, label in (
+        (application_desktop, "application launcher"),
+        (application_icon, "application icon"),
+        *(
+            (path, "legacy desktop entry")
+            for path in legacy_paths.values()
+        ),
+    ):
+        if os.path.lexists(path) and _is_managed(path):
+            path.unlink()
+        elif os.path.lexists(path):
+            print(f"preserving non-managed {label} {_display_path(path)}")
 
     if root.exists() and managed_data:
         shutil.rmtree(root)

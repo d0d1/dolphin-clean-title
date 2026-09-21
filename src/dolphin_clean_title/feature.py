@@ -17,6 +17,7 @@ from .paths import (
     APP_NAME,
     DESKTOP_FILE_NAME,
     ICON_NAME,
+    LEGACY_DESKTOP_FILE_NAME,
     log_path,
     pid_path,
     state_dir,
@@ -27,6 +28,7 @@ MANAGED_MARKER = "# dolphin-clean-title-managed"
 DOLPHIN_WRAPPER_MARKER = "# dolphin-clean-title-dolphin-wrapper-managed"
 SYSTEM_COMMAND_MARKER = "# dolphin-clean-title-system-command"
 DESKTOP_MARKER = "X-Dolphin-Clean-Title-Managed=true"
+ICON_MARKER = "dolphin-clean-title-icon-managed"
 DATA_MARKER = "managed-by-dolphin-clean-title"
 STATE_MARKER = "# dolphin-clean-title-state-v1"
 REPORT_URL = "https://github.com/d0d1/dolphin-clean-title/issues/new"
@@ -109,6 +111,18 @@ def autostart_path() -> Path:
 
 def application_desktop_path() -> Path:
     return data_home() / "applications" / DESKTOP_FILE_NAME
+
+
+def legacy_autostart_path() -> Path:
+    return config_home() / "autostart" / LEGACY_DESKTOP_FILE_NAME
+
+
+def legacy_application_desktop_path() -> Path:
+    return data_home() / "applications" / LEGACY_DESKTOP_FILE_NAME
+
+
+def application_icon_path() -> Path:
+    return data_home() / "icons" / "hicolor" / "scalable" / "apps" / f"{ICON_NAME}.svg"
 
 
 def feature_state_path() -> Path:
@@ -316,11 +330,13 @@ def is_managed(path: Path) -> bool:
         return False
     if path == feature_state_path():
         markers = (STATE_MARKER,)
-    elif path == application_desktop_path():
+    elif path in (application_desktop_path(), legacy_application_desktop_path()):
         markers = (DESKTOP_MARKER,)
+    elif path == application_icon_path():
+        markers = (ICON_MARKER,)
     elif path == dolphin_path():
         markers = (DOLPHIN_WRAPPER_MARKER,)
-    elif path == autostart_path():
+    elif path in (autostart_path(), legacy_autostart_path()):
         markers = (DESKTOP_MARKER,)
     elif path == bin_path():
         markers = (MANAGED_MARKER,)

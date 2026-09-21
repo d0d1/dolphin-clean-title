@@ -68,13 +68,14 @@ sha256sum ../dolphin-clean-title_0.1.0-1_all.deb
 A fresh package install is intentionally disabled. Enabling creates only the
 user-local wrapper, autostart entry, and state needed by the feature. Package
 upgrades replace system files without changing that state or starting a new
-activation. Disable the feature before removing the package; this keeps user
-cleanup explicit while allowing package removal to remain free of user-home
-maintainer scripts. Source-checkout and package installations use separate
-paths and do not overwrite each other's files. When switching from a source
-checkout to the package, uninstall the source checkout first so its user
-desktop entry does not shadow the packaged launcher; the source installer still
-refuses unmanaged collisions in its own user-local paths.
+activation. Disabling before removal is the cleanest cleanup path, but removal
+while enabled is supported: the remaining user-local wrapper falls back to
+ordinary `/usr/bin/dolphin` when the packaged runtime is absent. Source-checkout
+and package installations use separate paths and do not overwrite each other's
+files. When switching from a source checkout to the package, uninstall the
+source checkout first so its user desktop entry does not shadow the packaged
+launcher; the source installer still refuses unmanaged collisions in its own
+user-local paths.
 
 ## Release and PPA preparation
 
@@ -86,20 +87,33 @@ preparing a release should:
    checksum;
 3. create the matching version tag and manually attach the `.deb` and checksum
    file to a GitHub Release; and
-4. for a PPA, build a signed source package with
-   an upstream archive generated from that tag, then run
-   `dpkg-buildpackage -S -sa`, verify the resulting `.dsc` and source archive,
-   and upload the signed `.changes` file with `dput` only after a concrete
-   Launchpad PPA target exists. A reproducible archive preparation command is:
+4. for a PPA, build a signed source package with an upstream archive generated
+   from that tag, then run `dpkg-buildpackage -S -sa`, verify the resulting
+   `.dsc` and source archives, and upload the signed `.changes` file with
+   `dput` only after a concrete Launchpad PPA target exists. In the
+   `3.0 (quilt)` format, the upstream `.orig.tar.xz` and Debian
+   `.debian.tar.xz` are separate inputs; the release checkout must retain its
+   `debian/` directory for `dpkg-buildpackage`, while the upstream archive
+   intentionally excludes it. This follows the [Debian `dpkg-source` format
+   documentation](https://manpages.debian.org/bookworm/dpkg-dev/dpkg-source.1.en.html)
+   and the [Debian New Maintainers' Guide](https://www.debian.org/doc/maint-guide/maint-guide.en.pdf).
+   From a clean checkout containing the release tag, prepare the source package
+   with:
 
    ```sh
-   git archive --format=tar --prefix=dolphin-clean-title-0.1.0/ v0.1.0 \
-     | xz -c > ../dolphin-clean-title_0.1.0.orig.tar.xz
+   VERSION=0.1.0
+   TAG="v${VERSION}"
+   git archive --format=tar \
+     --prefix="dolphin-clean-title-${VERSION}/" "$TAG" -- . \
+     ':(exclude)debian' \
+     | xz -c > "../dolphin-clean-title_${VERSION}.orig.tar.xz"
    dpkg-buildpackage -S -sa
    ```
 
-   Run the archive command from the release checkout after the tag exists; it
-   must not include the `debian/` directory.
+   Run both commands from the release checkout after the tag exists. The
+   generated `.orig.tar.xz` must not contain `debian/`; `dpkg-buildpackage`
+   reads the retained checkout's `debian/` directory and generates the Debian
+   source archive beside the upstream archive.
 
 The Debian changelog is the package-version source of truth. Keep the upstream
 Python version and Debian upstream version aligned; use a Debian revision such

@@ -9,6 +9,7 @@ from typing import Mapping
 APP_NAME = "dolphin-clean-title"
 APP_ID = "com.github.d0d1.DolphinCleanTitle"
 DESKTOP_FILE_NAME = f"{APP_ID}.desktop"
+LEGACY_DESKTOP_FILE_NAME = f"{APP_NAME}.desktop"
 ICON_NAME = APP_ID
 
 

@@ -3,10 +3,14 @@
 dolphin-clean-title \- remove the Dolphin suffix from X11 window titles
 .SH SYNOPSIS
 .B dolphin-clean-title
-.RB [ \-\-background | \-\-foreground | \-\-stop | \-\-status | \-\-diagnose | ui ]
+.RB [ \-\-version ]
 .br
 .B dolphin-clean-title
-.RB { enable | disable | status }
+.RB [ \-\-background | \-\-stop | \-\-check | \-\-diagnose ]
+.RB [ \-\-verbose ] [ \-\-log-file PATH ]
+.br
+.B dolphin-clean-title
+.RB { enable | disable | status | ui }
 .SH DESCRIPTION
 .B dolphin-clean-title
 rewrites a matching trailing \(em Dolphin or - Dolphin suffix from Dolphin
@@ -30,18 +34,47 @@ Open the settings application.
 .SH SERVICE OPTIONS
 .TP
 .B \-\-background
-Start the cleaner in the background.
+Start the cleaner as a detached background service and return.
 .TP
-.B \-\-foreground
-Run the cleaner in the foreground.
+.B \-\-check
+Validate the current X11/XWayland environment and exit without changing
+activation.
 .TP
 .B \-\-stop
 Stop the running cleaner.
 .TP
 .B \-\-diagnose
 Print environment and runtime diagnostics.
+.TP
+.B \-\-version
+Print the installed version and exit.
+.TP
+.B \-\-verbose
+Also write debug-level service messages to standard error.
+.TP
+.B \-\-log-file PATH
+Write service logs to PATH instead of the default XDG state-directory log.
+.PP
+The internal \-\-foreground mode is used by the detached service and is not
+normally invoked directly.
 .SH FILES
-The user-local installation stores its state below the XDG data, config, and
-state directories and uses ~/.local/bin for its commands and Dolphin wrapper.
+.TP
+.I /usr/bin/dolphin-clean-title
+The command installed by the Debian package.
+.TP
+.I ~/.local/bin/dolphin-clean-title
+The command installed by the source-checkout development installer, when used.
+.TP
+.I ~/.local/bin/dolphin
+The user-local Dolphin launcher created when title cleaning is enabled.
+.TP
+.I $XDG_CONFIG_HOME/autostart/com.github.d0d1.DolphinCleanTitle.desktop
+The user-session activation entry created when title cleaning is enabled.
+.TP
+.I $XDG_DATA_HOME/applications/com.github.d0d1.DolphinCleanTitle.desktop
+The user-local settings-app launcher managed by the source installer.
+.TP
+.I $XDG_STATE_HOME/dolphin-clean-title/
+Persistent state, service PID, and default logs.
 .SH SEE ALSO
 .BR dolphin (1)
