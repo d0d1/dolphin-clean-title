@@ -45,8 +45,9 @@ state store or a separate UI-only implementation of enable/disable.
 The canonical distribution artifact is `dolphin-clean-title`, built for the
 Ubuntu 24.04 (`noble`) package boundary. The package installs the command and
 Python runtime under `/usr/bin` and `/usr/lib/dolphin-clean-title`, and the
-desktop entry under `/usr/share/applications`. It does not write a user's home
-directory and has no maintainer scripts that infer a desktop user.
+desktop entry under `/usr/share/applications`. Its minimal maintainer scripts
+manage only `/var/lib/dolphin-clean-title/install-id`; they never infer a
+desktop user, traverse a home directory, or start user processes.
 
 Build the binary package from a clean checkout with the distribution's
 `debhelper` and `dpkg-dev` packages available:
@@ -66,16 +67,25 @@ sha256sum ../dolphin-clean-title_0.1.0-1_all.deb
 ```
 
 A fresh package install is intentionally disabled. Enabling creates only the
-user-local wrapper, autostart entry, and state needed by the feature. Package
-upgrades replace system files without changing that state or starting a new
-activation. Disabling before removal is the cleanest cleanup path, but removal
-while enabled is supported: the remaining user-local wrapper falls back to
-ordinary `/usr/bin/dolphin` when the packaged runtime is absent. Source-checkout
-and package installations use separate paths and do not overwrite each other's
-files. When switching from a source checkout to the package, uninstall the
-source checkout first so its user desktop entry does not shadow the packaged
-launcher; the source installer still refuses unmanaged collisions in its own
-user-local paths.
+user-local wrapper, autostart entry, state, and current package install-id
+association needed by the feature. Package upgrades preserve the system
+install-id and user state. Removing the package removes the system identity;
+an enabled leftover user state is then stale and the wrapper falls back to
+ordinary `/usr/bin/dolphin`. Reinstalling therefore remains disabled until the
+user explicitly enables the feature again. Disabling before removal is still
+the cleanest cleanup path, while raw removal remains safe without touching a
+user home directory. Source-checkout and package installations use separate
+paths and do not overwrite each other's files. When switching from a source
+checkout to the package, uninstall the source checkout first so its user
+desktop entry does not shadow the packaged launcher; the source installer still
+refuses unmanaged collisions in its own user-local paths.
+
+Packaged cleaner processes are bound to the install identity that authorized
+their start and stop when that identity disappears or changes, even if a fast
+remove-and-reinstall cycle recreates the runtime files before the older process
+observes their absence. Normal upgrades preserve the identity and do not
+invalidate a running cleaner. Source-development processes do not use this
+package-generation binding.
 
 ## Release and PPA preparation
 

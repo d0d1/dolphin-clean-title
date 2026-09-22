@@ -20,6 +20,8 @@ class SettingsWindow(Adw.ApplicationWindow):
         super().__init__(application=application, title="Dolphin Clean Title")
         self._busy = False
         self._status_ready = False
+        self._status_query_in_flight = False
+        self._status_request_id = 0
 
         header_bar = Adw.HeaderBar()
 
@@ -27,9 +29,8 @@ class SettingsWindow(Adw.ApplicationWindow):
         preferences_group = Adw.PreferencesGroup()
         self._switch_row = Adw.SwitchRow(
             title='Remove “— Dolphin” from titles',
-            subtitle="Applies to newly opened Dolphin windows",
         )
-        self._switch_row.set_visible(False)
+        self._switch_row.set_sensitive(False)
         self._switch_row.connect("notify::active", self._on_switch_changed)
         preferences_group.add(self._switch_row)
 
@@ -50,31 +51,55 @@ class SettingsWindow(Adw.ApplicationWindow):
         self.refresh_status()
 
     def refresh_status(self) -> None:
-        self._status_ready = False
-        self._busy = True
-        self._switch_row.set_visible(False)
-        self._switch_row.set_sensitive(False)
+        if self._busy or self._status_query_in_flight:
+            return
+
+        self._load_status(show_loading=True)
+
+    def _load_status(self, *, show_loading: bool) -> None:
+        self._status_request_id += 1
+        request_id = self._status_request_id
+        self._status_query_in_flight = True
+
+        if show_loading:
+            self._status_ready = False
+            self._busy = True
+            self._switch_row.set_sensitive(False)
 
         def load() -> None:
             try:
-                result = (feature.reconcile(), None)
-            except feature.FeatureError as exc:
+                result = (feature.status(), None)
+            except (feature.FeatureError, OSError) as exc:
                 result = (None, str(exc))
-            GLib.idle_add(self._finish_status_load, result)
+            GLib.idle_add(
+                self._finish_status_load,
+                request_id,
+                show_loading,
+                result,
+            )
 
         threading.Thread(target=load, name="dolphin-clean-title-status", daemon=True).start()
 
     def _finish_status_load(
-        self, result: tuple[feature.FeatureStatus | None, str | None]
+        self,
+        request_id: int,
+        show_loading: bool,
+        result: tuple[feature.FeatureStatus | None, str | None],
     ) -> bool:
+        if request_id != self._status_request_id:
+            return GLib.SOURCE_REMOVE
+
+        self._status_query_in_flight = False
         status, error = result
-        self._busy = False
         if error is not None or status is None:
+            self._status_ready = False
             self._switch_row.set_sensitive(False)
-            self._show_error(
-                "Could not read Dolphin Clean Title state",
-                error or "The managed feature state is unavailable.",
-            )
+            if show_loading:
+                self._busy = False
+                self._show_error(
+                    "Could not read Dolphin Clean Title state",
+                    error or "The managed feature state is unavailable.",
+                )
             return GLib.SOURCE_REMOVE
 
         self._status_ready = True

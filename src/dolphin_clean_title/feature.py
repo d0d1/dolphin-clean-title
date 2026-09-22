@@ -19,6 +19,7 @@ from .paths import (
     ICON_NAME,
     LEGACY_DESKTOP_FILE_NAME,
     log_path,
+    package_install_id_path,
     pid_path,
     state_dir,
 )
@@ -31,6 +32,9 @@ DESKTOP_MARKER = "X-Dolphin-Clean-Title-Managed=true"
 ICON_MARKER = "dolphin-clean-title-icon-managed"
 DATA_MARKER = "managed-by-dolphin-clean-title"
 STATE_MARKER = "# dolphin-clean-title-state-v1"
+PACKAGE_INSTALL_ID_MARKER = "# dolphin-clean-title-package-install-id-v1"
+PACKAGED_RUNTIME_ENV = "DOLPHIN_CLEAN_TITLE_PACKAGED_RUNTIME"
+EXPECTED_INSTALL_ID_ENV = "DOLPHIN_CLEAN_TITLE_EXPECTED_INSTALL_ID"
 REPORT_URL = "https://github.com/d0d1/dolphin-clean-title/issues/new"
 
 _TRANSITION_LOCK = Lock()
@@ -127,6 +131,16 @@ def application_icon_path() -> Path:
 
 def feature_state_path() -> Path:
     return state_dir() / "feature-state"
+
+
+def system_install_id_path() -> Path:
+    """Return the package-owned identity used for packaged state validation."""
+
+    return Path("/var/lib/dolphin-clean-title/install-id")
+
+
+def _packaged_runtime() -> bool:
+    return os.environ.get(PACKAGED_RUNTIME_ENV) == "1"
 
 
 def _path_entry(path_entry: str) -> str:
@@ -258,6 +272,22 @@ if [ ! -x "$SYSTEM_COMMAND" ] && [ ! -x "$USER_COMMAND" ]; then
     exec "$DOLPHIN_EXECUTABLE" "$@"
 fi
 
+if [ -x "$SYSTEM_COMMAND" ]; then
+    CLEAN_TITLE_COMMAND="$SYSTEM_COMMAND"
+    if output=$("$CLEAN_TITLE_COMMAND" --prepare-launch 2>&1); then
+        :
+    else
+        status=$?
+        if [ "$status" -gt 1 ]; then
+            echo "dolphin-clean-title: could not prepare the cleaner; launching Dolphin normally" >&2
+            [ -z "$output" ] || echo "$output" >&2
+        fi
+        exec "$DOLPHIN_EXECUTABLE" "$@"
+    fi
+else
+    CLEAN_TITLE_COMMAND="$USER_COMMAND"
+fi
+
 if [ ! -r "$CGROUP_FILE" ]; then
     echo "dolphin-clean-title: cannot inspect $CGROUP_FILE; refusing to launch Dolphin" >&2
     exit 2
@@ -330,6 +360,8 @@ def is_managed(path: Path) -> bool:
         return False
     if path == feature_state_path():
         markers = (STATE_MARKER,)
+    elif path == package_install_id_path():
+        markers = (PACKAGE_INSTALL_ID_MARKER,)
     elif path in (application_desktop_path(), legacy_application_desktop_path()):
         markers = (DESKTOP_MARKER,)
     elif path == application_icon_path():
@@ -409,6 +441,52 @@ def _write_state(enabled: bool) -> None:
     )
 
 
+def _read_package_install_id() -> str | None:
+    path = package_install_id_path()
+    if not os.path.lexists(path):
+        return None
+    if not is_managed(path):
+        raise FeatureError("the packaged state identity collides with another file")
+    try:
+        lines = path.read_text(encoding="ascii").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise FeatureError("cannot read the packaged state identity") from exc
+    if len(lines) != 2 or lines[0] != PACKAGE_INSTALL_ID_MARKER or not lines[1]:
+        raise FeatureError("the packaged state identity is invalid")
+    return lines[1]
+
+
+def _read_system_install_id() -> str:
+    try:
+        value = system_install_id_path().read_text(encoding="ascii").strip()
+    except (FileNotFoundError, OSError, UnicodeError) as exc:
+        raise FeatureError(
+            "the installed package identity is unavailable; reinstall the package"
+        ) from exc
+    if not value:
+        raise FeatureError(
+            "the installed package identity is invalid; reinstall the package"
+        )
+    return value
+
+
+def _write_package_install_id(value: str) -> None:
+    _atomic_write(
+        package_install_id_path(),
+        f"{PACKAGE_INSTALL_ID_MARKER}\n{value}\n",
+        0o600,
+    )
+
+
+def _clear_package_install_id() -> None:
+    path = package_install_id_path()
+    if not os.path.lexists(path):
+        return
+    if not is_managed(path):
+        raise FeatureError("the packaged state identity collides with another file")
+    path.unlink()
+
+
 def _activation_kind(path: Path) -> str:
     if not os.path.lexists(path):
         return "absent"
@@ -438,6 +516,19 @@ def _require_installed() -> None:
 def status() -> FeatureStatus:
     _require_installed()
     configured = _read_state()
+    if _packaged_runtime():
+        if configured is True:
+            saved_id = _read_package_install_id()
+            current_id = _read_system_install_id()
+            if saved_id != current_id:
+                return FeatureStatus(enabled=False)
+        active = _activation_state()
+        if configured is None:
+            return FeatureStatus(enabled=False)
+        if active != configured:
+            raise FeatureError("managed activation does not match the persistent state")
+        return FeatureStatus(enabled=configured)
+
     active = _activation_state()
     if configured is None:
         configured = active
@@ -450,10 +541,15 @@ def is_enabled() -> bool:
     return status().enabled
 
 
-def _run_service(action: str) -> subprocess.CompletedProcess[str]:
+def _run_service(
+    action: str, expected_install_id: str | None = None
+) -> subprocess.CompletedProcess[str]:
+    command = [str(command_path()), action]
+    if expected_install_id is not None:
+        command.extend(["--expected-install-id", expected_install_id])
     try:
         return subprocess.run(
-            [str(command_path()), action],
+            command,
             check=False,
             capture_output=True,
             text=True,
@@ -462,36 +558,98 @@ def _run_service(action: str) -> subprocess.CompletedProcess[str]:
         raise FeatureError(f"cannot control the cleaner service: {exc}") from exc
 
 
-def _service_running() -> bool:
+def _service_running(expected_install_id: str | None = None) -> bool:
     try:
         raw_pid = pid_path().read_text(encoding="ascii").strip()
         pid = int(raw_pid)
         command_line = Path(f"/proc/{pid}/cmdline").read_bytes()
     except (FileNotFoundError, OSError, ValueError):
         return False
-    return pid > 0 and b"dolphin_clean_title" in command_line
+    if pid <= 0 or b"dolphin_clean_title" not in command_line:
+        return False
+    if expected_install_id is None:
+        return True
+    command_parts = [part for part in command_line.split(b"\0") if part]
+    expected_argument = expected_install_id.encode()
+    command_identity_matches = any(
+        command_parts[index : index + 2]
+        == [b"--expected-install-id", expected_argument]
+        for index in range(len(command_parts) - 1)
+    )
+    try:
+        environment = (Path(f"/proc/{pid}/environ").read_bytes()).split(b"\0")
+    except OSError:
+        environment = []
+    expected = f"{EXPECTED_INSTALL_ID_ENV}={expected_install_id}".encode()
+    return command_identity_matches or expected in environment
 
 
-def _wait_for_service(timeout: float = 5.0) -> None:
+def _wait_for_service(
+    expected_install_id: str | None = None, timeout: float = 5.0
+) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if _service_running():
+        if _service_running(expected_install_id):
             return
         time.sleep(0.05)
     raise FeatureError("the cleaner service did not become ready")
 
 
-def _ensure_service_running() -> None:
+def authorize_service_start(expected_install_id: str | None = None) -> str | None:
+    """Authorize a packaged service start and return its generation identity."""
+
+    if not _packaged_runtime():
+        return None
+    current = status()
+    if not current.enabled:
+        raise FeatureError("the packaged feature is disabled or stale")
+    current_id = _read_system_install_id()
+    if expected_install_id is not None and expected_install_id != current_id:
+        raise FeatureError(
+            "the package install identity changed before the cleaner started"
+        )
+    return current_id
+
+
+def packaged_install_id_matches(expected_install_id: str | None) -> bool:
+    """Return whether a packaged cleaner still belongs to its install generation."""
+
+    if not _packaged_runtime():
+        return True
+    if not expected_install_id:
+        return False
+    try:
+        return _read_system_install_id() == expected_install_id
+    except FeatureError:
+        return False
+
+
+def prepare_service_start(expected_install_id: str | None = None) -> bool:
+    """Stop an older generation before starting a new one, if necessary."""
+
+    if _service_running(expected_install_id):
+        return True
     if _service_running():
+        stopped = _run_service("--stop")
+        if stopped.returncode != 0:
+            raise FeatureError(
+                "the previous cleaner service could not stop: "
+                f"{stopped.stderr.strip() or stopped.stdout.strip()}"
+            )
+    return False
+
+
+def _ensure_service_running(expected_install_id: str | None = None) -> None:
+    if prepare_service_start(expected_install_id):
         return
     validate_activation_environment()
-    started = _run_service("--background")
+    started = _run_service("--background", expected_install_id)
     if started.returncode != 0:
         raise FeatureError(
             "the cleaner service could not start: "
             f"{started.stderr.strip() or started.stdout.strip()}"
         )
-    _wait_for_service()
+    _wait_for_service(expected_install_id)
 
 
 def _stop_after_failed_enable() -> None:
@@ -508,28 +666,31 @@ def enable() -> FeatureStatus:
     with _TRANSITION_LOCK:
         current = status()
         if current.enabled:
-            _ensure_service_running()
+            expected_install_id = authorize_service_start()
+            _ensure_service_running(expected_install_id)
             return status()
 
+        # A stale packaged state is inactive, but its managed activation files
+        # still need the same collision checks as a normal enable.
+        _activation_state()
         validate_activation_environment()
         snapshots = {
             "dolphin": _snapshot(dolphin_path()),
             "autostart": _snapshot(autostart_path()),
             "state": _snapshot(feature_state_path()),
+            "package_id": _snapshot(package_install_id_path()),
         }
+        expected_install_id = None
         try:
             _atomic_write(dolphin_path(), dolphin_wrapper_content(), 0o755)
             _atomic_write(
                 autostart_path(), autostart_content(command_path()), 0o644
             )
             _write_state(True)
-            started = _run_service("--background")
-            if started.returncode != 0:
-                raise FeatureError(
-                    "the cleaner service could not start: "
-                    f"{started.stderr.strip() or started.stdout.strip()}"
-                )
-            _wait_for_service()
+            if _packaged_runtime():
+                expected_install_id = _read_system_install_id()
+                _write_package_install_id(expected_install_id)
+            _ensure_service_running(expected_install_id)
             return status()
         except (FeatureError, OSError) as exc:
             try:
@@ -537,6 +698,7 @@ def enable() -> FeatureStatus:
                 _restore(dolphin_path(), snapshots["dolphin"])
                 _restore(autostart_path(), snapshots["autostart"])
                 _restore(feature_state_path(), snapshots["state"])
+                _restore(package_install_id_path(), snapshots["package_id"])
             except (FeatureError, OSError) as rollback_error:
                 raise FeatureError(
                     f"enable failed ({exc}); rollback also failed: {rollback_error}"
@@ -545,11 +707,10 @@ def enable() -> FeatureStatus:
 
 
 def _restore_enabled_after_failed_disable() -> None:
-    if _service_running():
-        return
-    started = _run_service("--background")
+    expected_install_id = authorize_service_start()
+    started = _run_service("--background", expected_install_id)
     if started.returncode == 0:
-        _wait_for_service()
+        _wait_for_service(expected_install_id)
 
 
 def disable() -> FeatureStatus:
@@ -557,6 +718,8 @@ def disable() -> FeatureStatus:
 
     with _TRANSITION_LOCK:
         current = status()
+        configured = _read_state()
+        active = _activation_state()
         if not current.enabled:
             if _service_running():
                 stopped = _run_service("--stop")
@@ -565,12 +728,40 @@ def disable() -> FeatureStatus:
                         "the cleaner service could not stop: "
                         f"{stopped.stderr.strip() or stopped.stdout.strip()}"
                     )
-            return current
+            package_id = (
+                _read_package_install_id() if _packaged_runtime() else None
+            )
+            if not active and configured is not True and package_id is None:
+                return current
+
+            snapshots = {
+                "dolphin": _snapshot(dolphin_path()),
+                "autostart": _snapshot(autostart_path()),
+                "state": _snapshot(feature_state_path()),
+                "package_id": _snapshot(package_install_id_path()),
+            }
+            try:
+                if active:
+                    dolphin_path().unlink()
+                    autostart_path().unlink()
+                _write_state(False)
+                if _packaged_runtime():
+                    _clear_package_install_id()
+                return status()
+            except (FeatureError, OSError) as exc:
+                _restore(dolphin_path(), snapshots["dolphin"])
+                _restore(autostart_path(), snapshots["autostart"])
+                _restore(feature_state_path(), snapshots["state"])
+                _restore(package_install_id_path(), snapshots["package_id"])
+                raise FeatureError(
+                    f"disable failed; previous state restored: {exc}"
+                ) from exc
 
         snapshots = {
             "dolphin": _snapshot(dolphin_path()),
             "autostart": _snapshot(autostart_path()),
             "state": _snapshot(feature_state_path()),
+            "package_id": _snapshot(package_install_id_path()),
         }
         stopped = _run_service("--stop")
         if stopped.returncode != 0:
@@ -582,12 +773,15 @@ def disable() -> FeatureStatus:
             dolphin_path().unlink()
             autostart_path().unlink()
             _write_state(False)
+            if _packaged_runtime():
+                _clear_package_install_id()
             return status()
         except (FeatureError, OSError) as exc:
             try:
                 _restore(dolphin_path(), snapshots["dolphin"])
                 _restore(autostart_path(), snapshots["autostart"])
                 _restore(feature_state_path(), snapshots["state"])
+                _restore(package_install_id_path(), snapshots["package_id"])
                 _restore_enabled_after_failed_disable()
             except (FeatureError, OSError) as rollback_error:
                 raise FeatureError(
@@ -596,15 +790,18 @@ def disable() -> FeatureStatus:
             raise FeatureError(f"disable failed; previous state restored: {exc}") from exc
 
 
-def reconcile() -> FeatureStatus:
-    """Restore an enabled cleaner service before reporting settings state."""
+def prepare_launch() -> bool:
+    """Prepare a packaged Dolphin launch without changing persistent state."""
 
+    if not _packaged_runtime():
+        return status().enabled
     with _TRANSITION_LOCK:
         current = status()
         if not current.enabled:
-            return current
-        _ensure_service_running()
-        return status()
+            return False
+        expected_install_id = authorize_service_start()
+        _ensure_service_running(expected_install_id)
+        return True
 
 
 def install_state_default() -> bool:

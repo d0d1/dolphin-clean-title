@@ -98,6 +98,10 @@ development or verification.
   dependency. The package is intentionally pure Python/shell and therefore
   uses `Architecture: all` while declaring its architecture-specific runtime
   dependencies explicitly.
+  Its minimal `postinst` and `postrm` use POSIX shell and manage only
+  `/var/lib/dolphin-clean-title/install-id`; they do not inspect users or
+  write home directories. Their create/preserve/remove behavior is exercised
+  by tests against temporary copies of the actual maintainer scripts.
 
 ## Evaluated alternatives
 

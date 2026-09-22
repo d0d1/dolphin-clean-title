@@ -34,8 +34,14 @@ constraints:
   uninstall cleanup in temporary XDG directories.
 - Feature-lifecycle tests exercise persistent enable/disable state, idempotent
   transitions, partial-state detection, rollback after failed transitions,
-  disabled-state preservation across updates, and the installed application
-  desktop entry.
+  disabled-state preservation across updates, packaged install-id matching and
+  stale-state handling, and the installed application desktop entry. They
+  verify that explicit launch preparation starts a missing packaged service,
+  while disabled or stale state never starts it. They also verify that the
+  authorized install identity is passed through background startup, that a
+  previous service generation is stopped before replacement, that every
+  packaged start path is authorized, and that a running service stops when its
+  install identity changes even if the runtime sentinel remains present.
 - The settings-app boundary is tested through the shared lifecycle API and
   desktop-entry content. On the real desktop, launch the installed app through
   its XDG launcher, verify the native switch and action-row focus behavior,
@@ -62,7 +68,8 @@ The Debian packaging verification builds the binary package with
 checks dependency resolution with `apt-get --simulate`, and installs/removes
 the package in an isolated reversible dpkg root when host privileges are not
 available. It verifies the packaged command path, desktop entry, fresh
-disabled state, and the absence of maintainer scripts that modify user homes.
+disabled state, install-id creation/preservation/removal, and that maintainer
+scripts touch only the package-owned system identity rather than user homes.
 On a privileged release machine, repeat the same checks with a real local
 `.deb` installation and package upgrade.
 

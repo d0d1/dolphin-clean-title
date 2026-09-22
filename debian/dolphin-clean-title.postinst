@@ -1,0 +1,35 @@
+#!/bin/sh
+set -eu
+
+install_id_path=/var/lib/dolphin-clean-title/install-id
+install_id_dir=/var/lib/dolphin-clean-title
+
+if [ "${1:-}" = configure ]; then
+    if [ -e "$install_id_dir" ] && { [ ! -d "$install_id_dir" ] || [ -L "$install_id_dir" ]; }; then
+        echo "dolphin-clean-title: invalid package state directory" >&2
+        exit 1
+    fi
+    if [ -e "$install_id_path" ] || [ -L "$install_id_path" ]; then
+        if [ ! -f "$install_id_path" ] || [ ! -s "$install_id_path" ] || [ -L "$install_id_path" ]; then
+            echo "dolphin-clean-title: invalid existing package install-id" >&2
+            exit 1
+        fi
+        exit 0
+    fi
+
+    install -d -m 0755 "$install_id_dir"
+    install_id=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || true)
+    if [ -z "$install_id" ]; then
+        echo "dolphin-clean-title: could not create package install-id" >&2
+        exit 1
+    fi
+    temporary="$install_id_path.dpkg-tmp.$$"
+    trap 'rm -f "$temporary"' EXIT HUP INT TERM
+    umask 022
+    printf '%s\n' "$install_id" > "$temporary"
+    chmod 0644 "$temporary"
+    mv "$temporary" "$install_id_path"
+    trap - EXIT HUP INT TERM
+fi
+
+exit 0

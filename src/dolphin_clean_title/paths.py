@@ -31,3 +31,9 @@ def lock_path(env: Mapping[str, str] | None = None) -> Path:
 
 def pid_path(env: Mapping[str, str] | None = None) -> Path:
     return state_dir(env) / f"{APP_NAME}.pid"
+
+
+def package_install_id_path() -> Path:
+    """Return the per-user association with the installed Debian package."""
+
+    return state_dir() / "package-install-id"

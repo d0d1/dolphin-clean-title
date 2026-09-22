@@ -1,5 +1,6 @@
 import importlib.util
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -67,9 +68,18 @@ class WrapperConstructionTests(unittest.TestCase):
             user_command = root / "home" / ".local" / "bin" / "dolphin-clean-title"
             dolphin = root / "usr" / "bin" / "dolphin"
             cgroup_file = root / "proc" / "self" / "cgroup"
+            ensure_log = root / "ensure.log"
             system_command.parent.mkdir(parents=True)
-            system_command.write_text("#!/bin/sh\n", encoding="utf-8")
-            system_command.chmod(0o755)
+
+            def write_system_command() -> None:
+                system_command.write_text(
+                    "#!/bin/sh\n"
+                    f"printf '%s\\n' \"$1\" >> {shlex.quote(str(ensure_log))}\n",
+                    encoding="utf-8",
+                )
+                system_command.chmod(0o755)
+
+            write_system_command()
             dolphin.parent.mkdir(parents=True, exist_ok=True)
             cgroup_file.parent.mkdir(parents=True)
             cgroup_file.write_text(
@@ -106,6 +116,9 @@ class WrapperConstructionTests(unittest.TestCase):
             )
             self.assertIn("QT_QPA_PLATFORM=xcb", installed.stdout)
             self.assertIn("ARG=/tmp", installed.stdout)
+            self.assertEqual(
+                ensure_log.read_text(encoding="utf-8"), "--prepare-launch\n"
+            )
 
             system_command.unlink()
             removed = subprocess.run(
@@ -117,9 +130,11 @@ class WrapperConstructionTests(unittest.TestCase):
             )
             self.assertIn("QT_QPA_PLATFORM=<unset>", removed.stdout)
             self.assertIn("ARG=/usr", removed.stdout)
+            self.assertEqual(
+                ensure_log.read_text(encoding="utf-8"), "--prepare-launch\n"
+            )
 
-            system_command.write_text("#!/bin/sh\n", encoding="utf-8")
-            system_command.chmod(0o755)
+            write_system_command()
             reinstalled = subprocess.run(
                 [str(wrapper), "/var/tmp"],
                 env=environment,
@@ -129,6 +144,97 @@ class WrapperConstructionTests(unittest.TestCase):
             )
             self.assertIn("QT_QPA_PLATFORM=xcb", reinstalled.stdout)
             self.assertIn("ARG=/var/tmp", reinstalled.stdout)
+            self.assertEqual(
+                ensure_log.read_text(encoding="utf-8"),
+                "--prepare-launch\n--prepare-launch\n",
+            )
+
+    def test_wrapper_launches_dolphin_when_recovery_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            wrapper = root / "dolphin-wrapper"
+            system_command = root / "usr" / "bin" / "dolphin-clean-title"
+            dolphin = root / "usr" / "bin" / "dolphin"
+            cgroup_file = root / "proc" / "self" / "cgroup"
+            system_command.parent.mkdir(parents=True)
+            system_command.write_text(
+                "#!/bin/sh\necho startup failed >&2\nexit 7\n", encoding="utf-8"
+            )
+            system_command.chmod(0o755)
+            dolphin.parent.mkdir(parents=True, exist_ok=True)
+            dolphin.write_text(
+                "#!/bin/sh\n"
+                "printf 'QT_QPA_PLATFORM=%s\\n' \"${QT_QPA_PLATFORM-<unset>}\"\n"
+                "printf 'ARG=%s\\n' \"$1\"\n",
+                encoding="utf-8",
+            )
+            dolphin.chmod(0o755)
+            cgroup_file.parent.mkdir(parents=True)
+            cgroup_file.write_text("0::/user.slice/test.scope\n", encoding="utf-8")
+            wrapper.write_text(
+                installer._dolphin_wrapper_content(
+                    system_command=system_command,
+                    dolphin_executable=dolphin,
+                    cgroup_file=cgroup_file,
+                ),
+                encoding="utf-8",
+            )
+            wrapper.chmod(0o755)
+
+            result = subprocess.run(
+                [str(wrapper), "/tmp"],
+                env=os.environ.copy(),
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0)
+            self.assertIn("QT_QPA_PLATFORM=<unset>", result.stdout)
+            self.assertIn("ARG=/tmp", result.stdout)
+            self.assertIn("could not prepare the cleaner", result.stderr)
+            self.assertIn("startup failed", result.stderr)
+
+    def test_packaged_inactive_prepare_falls_back_without_forcing_xcb(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            wrapper = root / "dolphin-wrapper"
+            system_command = root / "usr" / "bin" / "dolphin-clean-title"
+            dolphin = root / "usr" / "bin" / "dolphin"
+            system_command.parent.mkdir(parents=True)
+            system_command.write_text(
+                "#!/bin/sh\n"
+                "printf '%s\\n' \"$1\" > "
+                + shlex.quote(str(root / "prepare.log"))
+                + "\n"
+                "exit 1\n",
+                encoding="utf-8",
+            )
+            system_command.chmod(0o755)
+            dolphin.write_text(
+                "#!/bin/sh\n"
+                "printf 'QT_QPA_PLATFORM=%s\\n' \"${QT_QPA_PLATFORM-<unset>}\"\n",
+                encoding="utf-8",
+            )
+            dolphin.chmod(0o755)
+            wrapper.write_text(
+                installer._dolphin_wrapper_content(
+                    system_command=system_command,
+                    dolphin_executable=dolphin,
+                ),
+                encoding="utf-8",
+            )
+            wrapper.chmod(0o755)
+
+            result = subprocess.run(
+                [str(wrapper), "/tmp"], capture_output=True, text=True
+            )
+
+            self.assertEqual(result.returncode, 0)
+            self.assertIn("QT_QPA_PLATFORM=<unset>", result.stdout)
+            self.assertEqual(
+                (root / "prepare.log").read_text(encoding="utf-8"),
+                "--prepare-launch\n",
+            )
 
     def test_path_validation_requires_user_bin_before_usr_bin(self):
         with tempfile.TemporaryDirectory() as home:

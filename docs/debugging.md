@@ -17,8 +17,11 @@ and protocol version, Dolphin processes, and matching windows.
 The installed lifecycle command adds `status`, which reports the persisted
 feature state only when the managed activation files agree with it. A partial
 or colliding activation is reported as an error rather than being treated as
-enabled or disabled. The settings app uses the same status boundary and shows
-the error dialog while keeping its switch unavailable.
+enabled or disabled. For the Debian package, `status` also reports an enabled
+state as inactive when the saved per-user package identity is missing or does
+not match `/var/lib/dolphin-clean-title/install-id`; this is the expected
+remove-and-reinstall safety boundary. The settings app uses the same status
+boundary and shows the error dialog while keeping its switch unavailable.
 The default log is under the XDG state directory; use `--log-file` to place a
 diagnostic log under `.artifacts/` during development.
 
@@ -44,6 +47,18 @@ The wrapper invokes `/usr/bin/dolphin` explicitly and sets only
 `QT_QPA_PLATFORM=xcb` in transient units. A missing `DISPLAY`, missing
 `systemd-run`, incorrect `PATH` ordering, or a failed transient-unit start is
 an actionable setup boundary rather than a title-cleaning failure.
+For a packaged launch, the wrapper first invokes the hidden
+`--prepare-launch` operation. Exit status 0 means the current package identity
+is enabled and the cleaner is running; status 1 means disabled or stale state
+and the wrapper deliberately launches ordinary Dolphin; status 2 identifies a
+real preparation error and includes the command's diagnostic output. Inspect
+`/var/lib/dolphin-clean-title/install-id` and the per-user
+`package-install-id` state file when a remove-and-reinstall test appears
+enabled but inactive. The foreground cleaner also carries its authorized
+package identity in its process environment and stops if that identity is
+missing, invalid, or changed; compare it with the system install-id when
+diagnosing a suspected old-generation process. A PID-only readiness check is
+not sufficient evidence that the current package generation is running.
 
 Future changes must preserve appropriate support for actionable logging,
 environment and version inspection, reproducible checks, test diagnostics,

@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+if [ "${1:-}" = remove ] || [ "${1:-}" = purge ]; then
+    install_id_path=/var/lib/dolphin-clean-title/install-id
+    install_id_dir=/var/lib/dolphin-clean-title
+    if [ -f "$install_id_path" ] && [ ! -L "$install_id_path" ]; then
+        rm -f "$install_id_path"
+    fi
+    rmdir "$install_id_dir" 2>/dev/null || true
+fi
+
+exit 0

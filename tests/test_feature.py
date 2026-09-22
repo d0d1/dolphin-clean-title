@@ -65,59 +65,114 @@ class FeatureLifecycleTests(unittest.TestCase):
                     self.assertTrue(feature.enable().enabled)
                 run_service.assert_not_called()
 
-    def test_reconcile_preserved_enabled_state_after_reinstall_starts_service(self):
+    def test_packaged_enabled_state_with_missing_service_is_prepared(self):
         with tempfile.TemporaryDirectory() as home:
             env = self._environment(home)
             with mock.patch.dict(os.environ, env, clear=False):
                 self._install_runtime(env, enabled=True)
-                with mock.patch.object(
-                    feature, "validate_activation_environment"
-                ) as validate:
-                    with mock.patch.object(
-                        feature,
-                        "_run_service",
-                        return_value=subprocess.CompletedProcess([], 0, "", ""),
-                    ) as run_service:
-                        with mock.patch.object(
-                            feature, "_service_running", return_value=False
-                        ):
-                            with mock.patch.object(feature, "_wait_for_service"):
-                                status = feature.reconcile()
+                system_id = Path(home) / "system-install-id"
+                system_id.write_text("current-id\n", encoding="ascii")
+                feature.package_install_id_path().parent.mkdir(parents=True, exist_ok=True)
+                feature.package_install_id_path().write_text(
+                    f"{feature.PACKAGE_INSTALL_ID_MARKER}\ncurrent-id\n",
+                    encoding="ascii",
+                )
+                with mock.patch.dict(
+                    os.environ, {feature.PACKAGED_RUNTIME_ENV: "1"}, clear=False
+                ):
+                    with mock.patch.object(feature, "system_install_id_path", return_value=system_id):
+                        with mock.patch.object(feature, "validate_activation_environment") as validate:
+                            with mock.patch.object(
+                                feature,
+                                "_run_service",
+                                return_value=subprocess.CompletedProcess([], 0, "", ""),
+                            ) as run_service:
+                                with mock.patch.object(feature, "_service_running", return_value=False):
+                                    with mock.patch.object(feature, "_wait_for_service"):
+                                        prepared = feature.prepare_launch()
 
-                self.assertTrue(status.enabled)
+                self.assertTrue(prepared)
                 validate.assert_called_once_with()
-                run_service.assert_called_once_with("--background")
+                run_service.assert_called_once_with(
+                    "--background",
+                    "current-id",
+                )
 
-    def test_reconcile_disabled_state_does_not_start_service(self):
+    def test_packaged_disabled_state_does_not_prepare_or_start_service(self):
         with tempfile.TemporaryDirectory() as home:
             env = self._environment(home)
             with mock.patch.dict(os.environ, env, clear=False):
                 self._install_runtime(env, enabled=False)
-                with mock.patch.object(
-                    feature, "validate_activation_environment"
-                ) as validate:
-                    with mock.patch.object(feature, "_run_service") as run_service:
-                        status = feature.reconcile()
-
-                self.assertFalse(status.enabled)
+                with mock.patch.dict(
+                    os.environ, {feature.PACKAGED_RUNTIME_ENV: "1"}, clear=False
+                ):
+                    with mock.patch.object(feature, "validate_activation_environment") as validate:
+                        with mock.patch.object(feature, "_run_service") as run_service:
+                            self.assertFalse(feature.prepare_launch())
                 validate.assert_not_called()
                 run_service.assert_not_called()
 
-    def test_reconcile_failure_does_not_report_operational_state(self):
+    def test_packaged_missing_install_id_is_stale_and_does_not_start(self):
         with tempfile.TemporaryDirectory() as home:
             env = self._environment(home)
             with mock.patch.dict(os.environ, env, clear=False):
                 self._install_runtime(env, enabled=True)
-                failed = subprocess.CompletedProcess([], 1, "", "startup failed")
-                with mock.patch.object(feature, "validate_activation_environment"):
-                    with mock.patch.object(feature, "_run_service", return_value=failed):
-                        with mock.patch.object(
-                            feature, "_service_running", return_value=False
-                        ):
-                            with self.assertRaisesRegex(
-                                feature.FeatureError, "could not start"
-                            ):
-                                feature.reconcile()
+                system_id = Path(home) / "system-install-id"
+                system_id.write_text("current-id\n", encoding="ascii")
+                with mock.patch.dict(
+                    os.environ, {feature.PACKAGED_RUNTIME_ENV: "1"}, clear=False
+                ):
+                    with mock.patch.object(feature, "system_install_id_path", return_value=system_id):
+                        with mock.patch.object(feature, "_run_service") as run_service:
+                            self.assertFalse(feature.status().enabled)
+                            self.assertFalse(feature.prepare_launch())
+                run_service.assert_not_called()
+
+    def test_packaged_install_id_mismatch_is_off_until_explicit_enable(self):
+        with tempfile.TemporaryDirectory() as home:
+            env = self._environment(home)
+            with mock.patch.dict(os.environ, env, clear=False):
+                self._install_runtime(env, enabled=True)
+                system_id = Path(home) / "system-install-id"
+                system_id.write_text("new-id\n", encoding="ascii")
+                feature.package_install_id_path().parent.mkdir(parents=True, exist_ok=True)
+                feature.package_install_id_path().write_text(
+                    f"{feature.PACKAGE_INSTALL_ID_MARKER}\nold-id\n",
+                    encoding="ascii",
+                )
+                with mock.patch.dict(
+                    os.environ, {feature.PACKAGED_RUNTIME_ENV: "1"}, clear=False
+                ):
+                    with mock.patch.object(feature, "system_install_id_path", return_value=system_id):
+                        self.assertFalse(feature.status().enabled)
+                        with mock.patch.object(feature, "validate_activation_environment"):
+                            with mock.patch.object(
+                                feature,
+                                "_run_service",
+                                return_value=subprocess.CompletedProcess([], 0, "", ""),
+                            ) as run_service:
+                                with mock.patch.object(feature, "_wait_for_service"):
+                                    with mock.patch.object(feature, "_service_running", return_value=False):
+                                        self.assertTrue(feature.enable().enabled)
+                        self.assertIn("new-id", feature.package_install_id_path().read_text())
+                        run_service.assert_called_once_with(
+                            "--background",
+                            "new-id",
+                        )
+
+    def test_packaged_start_stops_previous_generation_before_starting(self):
+        with mock.patch.object(
+            feature,
+            "_service_running",
+            side_effect=[False, True],
+        ):
+            with mock.patch.object(
+                feature,
+                "_run_service",
+                return_value=subprocess.CompletedProcess([], 0, "", ""),
+            ) as run_service:
+                self.assertFalse(feature.prepare_service_start("new-id"))
+        run_service.assert_called_once_with("--stop")
 
     def test_disable_from_enabled_and_is_idempotent(self):
         with tempfile.TemporaryDirectory() as home:

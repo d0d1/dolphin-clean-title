@@ -64,6 +64,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="print local environment and matching-window diagnostics",
     )
+    action.add_argument(
+        "--prepare-launch",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--expected-install-id",
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument(
         "--verbose",
         action="store_true",
@@ -223,7 +232,18 @@ def diagnose() -> int:
     return 0
 
 
-def start_background(verbose: bool, path: str | None) -> int:
+def start_background(
+    verbose: bool,
+    path: str | None,
+    expected_install_id: str | None = None,
+) -> int:
+    try:
+        authorized_install_id = feature.authorize_service_start(expected_install_id)
+        if feature.prepare_service_start(authorized_install_id):
+            return 0
+    except feature.FeatureError as exc:
+        return _error(str(exc))
+
     try:
         info = validate_x11_session()
         with X11Connection(info.display):
@@ -241,6 +261,11 @@ def start_background(verbose: bool, path: str | None) -> int:
         command.append("--verbose")
     if path:
         command.extend(["--log-file", path])
+    if authorized_install_id is not None:
+        command.extend(["--expected-install-id", authorized_install_id])
+    environment = os.environ.copy()
+    if authorized_install_id is not None:
+        environment[feature.EXPECTED_INSTALL_ID_ENV] = authorized_install_id
     try:
         subprocess.Popen(
             command,
@@ -248,6 +273,7 @@ def start_background(verbose: bool, path: str | None) -> int:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
+            env=environment,
         )
     except OSError as exc:
         return _error(f"cannot start background service: {exc}")
@@ -255,26 +281,45 @@ def start_background(verbose: bool, path: str | None) -> int:
     return 0
 
 
-def run_foreground(verbose: bool, path: str | None) -> int:
+def run_foreground(
+    verbose: bool,
+    path: str | None,
+    expected_install_id: str | None = None,
+) -> int:
     try:
         destination = configure_logging(verbose, path, foreground=True)
     except OSError as exc:
         return _error(f"cannot configure logging: {exc}")
+    try:
+        expected_install_id = feature.authorize_service_start(expected_install_id)
+    except feature.FeatureError as exc:
+        LOGGER.error("%s", exc)
+        return _error(str(exc))
+    if expected_install_id is not None:
+        os.environ[feature.EXPECTED_INSTALL_ID_ENV] = expected_install_id
     stop_requested = False
     runtime_missing_logged = False
+    install_identity_missing_logged = False
 
     def request_stop(_signum: int, _frame: object) -> None:
         nonlocal stop_requested
         stop_requested = True
 
     def service_should_stop() -> bool:
-        nonlocal runtime_missing_logged
+        nonlocal install_identity_missing_logged, runtime_missing_logged
         if stop_requested:
             return True
         if not packaged_runtime_available():
             if not runtime_missing_logged:
                 LOGGER.warning("packaged runtime disappeared; stopping service")
                 runtime_missing_logged = True
+            return True
+        if not feature.packaged_install_id_matches(expected_install_id):
+            if not install_identity_missing_logged:
+                LOGGER.warning(
+                    "packaged install identity disappeared or changed; stopping service"
+                )
+                install_identity_missing_logged = True
             return True
         return False
 
@@ -341,9 +386,23 @@ def run_feature_command(command: str) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command:
-        if args.background or args.stop or args.check or args.diagnose or args.foreground:
+        if (
+            args.background
+            or args.stop
+            or args.check
+            or args.diagnose
+            or args.prepare_launch
+            or args.expected_install_id
+            or args.foreground
+        ):
             return _error("lifecycle commands cannot be combined with legacy service flags")
         return run_feature_command(args.command)
+    if args.prepare_launch:
+        try:
+            prepared = feature.prepare_launch()
+        except feature.FeatureError as exc:
+            return _error(str(exc))
+        return 0 if prepared else 1
     if args.stop:
         try:
             stopped = stop_running()
@@ -356,5 +415,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.diagnose:
         return diagnose()
     if args.background:
-        return start_background(args.verbose, args.log_file)
+        return start_background(
+            args.verbose, args.log_file, args.expected_install_id
+        )
+    if args.foreground:
+        return run_foreground(
+            args.verbose, args.log_file, args.expected_install_id
+        )
+    if os.environ.get(PACKAGED_RUNTIME_ENV) == "1":
+        return start_background(
+            args.verbose, args.log_file, args.expected_install_id
+        )
     return run_foreground(args.verbose, args.log_file)
