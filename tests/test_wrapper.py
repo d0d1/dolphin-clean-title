@@ -60,7 +60,7 @@ class WrapperConstructionTests(unittest.TestCase):
         self.assertIn("*/plasma-dolphin.service|*/plasma-dolphin.service/*", content)
         self.assertNotIn('case "$@"', content)
 
-    def test_package_removal_while_enabled_falls_back_and_reinstall_reactivates(self):
+    def test_package_removal_while_enabled_requires_explicit_reenable_after_reinstall(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             wrapper = root / "dolphin-wrapper"
@@ -69,12 +69,17 @@ class WrapperConstructionTests(unittest.TestCase):
             dolphin = root / "usr" / "bin" / "dolphin"
             cgroup_file = root / "proc" / "self" / "cgroup"
             ensure_log = root / "ensure.log"
+            activation_state = root / "activation-state"
             system_command.parent.mkdir(parents=True)
+            activation_state.write_text("enabled\n", encoding="ascii")
 
             def write_system_command() -> None:
                 system_command.write_text(
                     "#!/bin/sh\n"
-                    f"printf '%s\\n' \"$1\" >> {shlex.quote(str(ensure_log))}\n",
+                    f"printf '%s\\n' \"$1\" >> {shlex.quote(str(ensure_log))}\n"
+                    f"if [ \"$(cat {shlex.quote(str(activation_state))} 2>/dev/null || true)\" != enabled ]; then\n"
+                    "    exit 1\n"
+                    "fi\n",
                     encoding="utf-8",
                 )
                 system_command.chmod(0o755)
@@ -134,6 +139,9 @@ class WrapperConstructionTests(unittest.TestCase):
                 ensure_log.read_text(encoding="utf-8"), "--prepare-launch\n"
             )
 
+            # Reinstall creates a new package install-id, so the preserved
+            # enabled state is stale until the user explicitly enables again.
+            activation_state.write_text("stale\n", encoding="ascii")
             write_system_command()
             reinstalled = subprocess.run(
                 [str(wrapper), "/var/tmp"],
@@ -142,11 +150,28 @@ class WrapperConstructionTests(unittest.TestCase):
                 text=True,
                 check=True,
             )
-            self.assertIn("QT_QPA_PLATFORM=xcb", reinstalled.stdout)
+            self.assertIn("QT_QPA_PLATFORM=<unset>", reinstalled.stdout)
             self.assertIn("ARG=/var/tmp", reinstalled.stdout)
             self.assertEqual(
                 ensure_log.read_text(encoding="utf-8"),
                 "--prepare-launch\n--prepare-launch\n",
+            )
+
+            # An explicit enable associates the preserved user state with the
+            # new install-id; subsequent launches may use XCB again.
+            activation_state.write_text("enabled\n", encoding="ascii")
+            enabled_again = subprocess.run(
+                [str(wrapper), "/home"],
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            self.assertIn("QT_QPA_PLATFORM=xcb", enabled_again.stdout)
+            self.assertIn("ARG=/home", enabled_again.stdout)
+            self.assertEqual(
+                ensure_log.read_text(encoding="utf-8"),
+                "--prepare-launch\n--prepare-launch\n--prepare-launch\n",
             )
 
     def test_wrapper_launches_dolphin_when_recovery_fails(self):

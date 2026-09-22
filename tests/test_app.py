@@ -13,6 +13,56 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class RuntimeLifecycleTests(unittest.TestCase):
+    def _assert_packaged_start_paths_refuse_authorization(self, reason: str) -> None:
+        for argv in (("--background",), ("--foreground",), ()):
+            with self.subTest(argv=argv):
+                with ExitStack() as stack:
+                    stack.enter_context(
+                        mock.patch.dict(
+                            os.environ,
+                            {app.PACKAGED_RUNTIME_ENV: "1"},
+                            clear=False,
+                        )
+                    )
+                    stack.enter_context(
+                        mock.patch.object(
+                            app.feature,
+                            "authorize_service_start",
+                            side_effect=app.feature.FeatureError(reason),
+                        )
+                    )
+                    stack.enter_context(
+                        mock.patch.object(
+                            app,
+                            "configure_logging",
+                            return_value=Path("/tmp/dolphin-clean-title-test.log"),
+                        )
+                    )
+                    validate = stack.enter_context(
+                        mock.patch.object(app, "validate_x11_session")
+                    )
+                    popen = stack.enter_context(
+                        mock.patch.object(app.subprocess, "Popen")
+                    )
+                    with redirect_stdout(io.StringIO()), redirect_stderr(
+                        io.StringIO()
+                    ):
+                        result = app.main(list(argv))
+
+                self.assertEqual(result, 2)
+                validate.assert_not_called()
+                popen.assert_not_called()
+
+    def test_packaged_start_paths_fail_closed_when_disabled(self):
+        self._assert_packaged_start_paths_refuse_authorization(
+            "the packaged feature is disabled"
+        )
+
+    def test_packaged_start_paths_fail_closed_when_stale(self):
+        self._assert_packaged_start_paths_refuse_authorization(
+            "the packaged feature is disabled or stale"
+        )
+
     def test_prepare_launch_returns_active_state(self):
         with mock.patch.object(app.feature, "prepare_launch", return_value=True) as prepare:
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):

@@ -21,7 +21,6 @@ class SettingsWindow(Adw.ApplicationWindow):
         self._busy = False
         self._status_ready = False
         self._status_query_in_flight = False
-        self._status_request_id = 0
 
         header_bar = Adw.HeaderBar()
 
@@ -54,17 +53,13 @@ class SettingsWindow(Adw.ApplicationWindow):
         if self._busy or self._status_query_in_flight:
             return
 
-        self._load_status(show_loading=True)
+        self._load_status()
 
-    def _load_status(self, *, show_loading: bool) -> None:
-        self._status_request_id += 1
-        request_id = self._status_request_id
+    def _load_status(self) -> None:
         self._status_query_in_flight = True
-
-        if show_loading:
-            self._status_ready = False
-            self._busy = True
-            self._switch_row.set_sensitive(False)
+        self._status_ready = False
+        self._busy = True
+        self._switch_row.set_sensitive(False)
 
         def load() -> None:
             try:
@@ -73,8 +68,6 @@ class SettingsWindow(Adw.ApplicationWindow):
                 result = (None, str(exc))
             GLib.idle_add(
                 self._finish_status_load,
-                request_id,
-                show_loading,
                 result,
             )
 
@@ -82,31 +75,23 @@ class SettingsWindow(Adw.ApplicationWindow):
 
     def _finish_status_load(
         self,
-        request_id: int,
-        show_loading: bool,
         result: tuple[feature.FeatureStatus | None, str | None],
     ) -> bool:
-        if request_id != self._status_request_id:
-            return GLib.SOURCE_REMOVE
-
         self._status_query_in_flight = False
         status, error = result
         if error is not None or status is None:
             self._status_ready = False
+            self._busy = False
             self._switch_row.set_sensitive(False)
-            if show_loading:
-                self._busy = False
-                self._show_error(
-                    "Could not read Dolphin Clean Title state",
-                    error or "The managed feature state is unavailable.",
-                )
+            self._show_error(
+                "Could not read Dolphin Clean Title state",
+                error or "The managed feature state is unavailable.",
+            )
             return GLib.SOURCE_REMOVE
 
         self._status_ready = True
-        self._busy = True
         self._switch_row.set_active(status.enabled)
         self._busy = False
-        self._switch_row.set_visible(True)
         self._switch_row.set_sensitive(True)
         return GLib.SOURCE_REMOVE
 

@@ -13,8 +13,10 @@ class UIConstructionTests(unittest.TestCase):
 
     def test_startup_reads_status_without_reconciliation_or_polling(self):
         source = UI_SOURCE.read_text(encoding="utf-8")
-        self.assertIn("self._load_status(show_loading=True)", source)
+        self.assertIn("self._load_status()", source)
         self.assertIn("result = (feature.status(), None)", source)
+        self.assertNotIn("_status_request_id", source)
+        self.assertNotIn("show_loading", source)
         self.assertNotIn("ensure_service_if_enabled", source)
         self.assertNotIn("timeout_add", source)
         self.assertNotIn("_poll_status", source)
@@ -36,6 +38,7 @@ class UIConstructionTests(unittest.TestCase):
     def test_status_load_keeps_row_present_while_initial_state_is_unavailable(self):
         source = UI_SOURCE.read_text(encoding="utf-8")
         self.assertNotIn("set_visible(False)", source)
+        self.assertNotIn("set_visible(True)", source)
         self.assertIn("self._switch_row.set_sensitive(False)", source)
         self.assertIn("self._switch_row.set_sensitive(True)", source)
 
