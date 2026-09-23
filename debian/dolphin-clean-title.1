@@ -11,6 +11,9 @@ dolphin-clean-title \- remove the Dolphin suffix from X11 window titles
 .br
 .B dolphin-clean-title
 .RB { enable | disable | status | ui }
+.br
+.B dolphin-clean-title diagnostics
+.RB { on | off | status }
 .SH DESCRIPTION
 .B dolphin-clean-title
 rewrites a matching trailing \(em Dolphin or - Dolphin suffix from Dolphin
@@ -31,6 +34,11 @@ Report whether the feature is enabled.
 .TP
 .B ui
 Open the settings application.
+.TP
+.B diagnostics on|off|status
+Persist, clear, or report the preference for verbose cleaner logging. This
+diagnostic preference is separate from feature activation and takes effect
+when the cleaner next starts.
 .SH SERVICE OPTIONS
 .TP
 .B \-\-background

@@ -25,6 +25,11 @@ state, collision checks, rollback, and service transitions. A managed desktop
 entry launches the settings app through the installed command wrapper and is
 kept when the feature is disabled.
 
+The optional verbose-logging preference is stored separately from feature
+activation state. It only controls diagnostic detail for cleaner starts; it
+does not enable the feature, authorize a packaged service, or change lifecycle
+transitions.
+
 The Debian package installs the command, Python runtime, settings launcher,
 and a system-owned install identity under `/var/lib/dolphin-clean-title`.
 Its minimal `postinst`/`postrm` scripts create, preserve, or remove only that

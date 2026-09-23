@@ -136,7 +136,6 @@ class X11IntegrationTests(unittest.TestCase):
                     "-m",
                     "dolphin_clean_title",
                     "--foreground",
-                    "--verbose",
                     "--log-file",
                     str(log_path),
                 ],
@@ -187,7 +186,10 @@ class X11IntegrationTests(unittest.TestCase):
                     daemon.stderr.close()
             self.assertIsNotNone(log_path)
             log = log_path.read_text(encoding="utf-8")
-            self.assertIn("rewrote window", log)
+            self.assertIn("rewrote Dolphin title for window", log)
+            self.assertNotIn("Home — Dolphin", log)
+            self.assertNotIn("Videos - Dolphin", log)
+            self.assertNotIn("Pictures - Dolphin", log)
             self.assertIn("connected to X11", log)
 
     def test_latin1_wm_name_does_not_corrupt_owned_utf8_title(self):
@@ -298,6 +300,66 @@ class X11IntegrationTests(unittest.TestCase):
                 daemon.wait(timeout=5)
                 self._wait_for_title(
                     observer, dolphin.window, "Videos — Dolphin", None
+                )
+                log = log_path.read_text(encoding="utf-8")
+                self.assertIn(f"restored title for window 0x{dolphin.window:x}", log)
+                self.assertIn("observed Dolphin title property", log)
+                self.assertIn(
+                    f"acquired title ownership for window 0x{dolphin.window:x}",
+                    log,
+                )
+                self.assertNotIn("Home - Dolphin", log)
+                self.assertNotIn("Music", log)
+            finally:
+                observer.close()
+                dolphin.close()
+                if daemon.poll() is None:
+                    daemon.terminate()
+                    daemon.wait(timeout=5)
+                if daemon.stdout:
+                    daemon.stdout.close()
+                if daemon.stderr:
+                    daemon.stderr.close()
+
+    def test_changed_wm_name_restores_observed_hyphen_suffix_on_stop(self):
+        with tempfile.TemporaryDirectory() as state:
+            env = os.environ.copy()
+            env["XDG_SESSION_TYPE"] = "x11"
+            env.pop("WAYLAND_DISPLAY", None)
+            env["XDG_STATE_HOME"] = state
+            env["PYTHONPATH"] = str(ROOT / "src")
+            env["PYTHONDONTWRITEBYTECODE"] = "1"
+            log_path = Path(state) / "service.log"
+            daemon = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "dolphin_clean_title",
+                    "--foreground",
+                    "--verbose",
+                    "--log-file",
+                    str(log_path),
+                ],
+                cwd=ROOT,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            dolphin = X11TestWindow(env["DISPLAY"], "dolphin", "Dolphin")
+            observer = X11Connection(env["DISPLAY"])
+            try:
+                dolphin.set_wm_title("Home - Dolphin")
+                dolphin.show()
+                self._wait_for_title(observer, dolphin.window, "Home", daemon)
+
+                dolphin.set_wm_title("Music")
+                self._wait_for_title(observer, dolphin.window, "Music", daemon)
+
+                daemon.terminate()
+                daemon.wait(timeout=5)
+                self._wait_for_title(
+                    observer, dolphin.window, "Music - Dolphin", None
                 )
                 log = log_path.read_text(encoding="utf-8")
                 self.assertIn(f"restored title for window 0x{dolphin.window:x}", log)

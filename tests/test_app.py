@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from dolphin_clean_title import app
+from dolphin_clean_title import diagnostics
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -102,6 +103,120 @@ class RuntimeLifecycleTests(unittest.TestCase):
             popen.call_args.kwargs["env"][app.feature.EXPECTED_INSTALL_ID_ENV],
             "install-a",
         )
+
+    def test_diagnostics_preference_is_independent_of_feature_state(self):
+        with tempfile.TemporaryDirectory() as state_home:
+            with mock.patch.dict(
+                os.environ, {"XDG_STATE_HOME": state_home}, clear=False
+            ):
+                with mock.patch.object(app.feature, "enable") as enable:
+                    with mock.patch.object(app.feature, "disable") as disable:
+                        with redirect_stdout(io.StringIO()), redirect_stderr(
+                            io.StringIO()
+                        ):
+                            self.assertEqual(app.main(["diagnostics", "on"]), 0)
+                            self.assertEqual(app.main(["diagnostics", "status"]), 0)
+                            self.assertEqual(app.main(["diagnostics", "off"]), 0)
+
+                self.assertFalse(app.feature.feature_state_path().exists())
+                enable.assert_not_called()
+                disable.assert_not_called()
+                self.assertFalse(diagnostics.verbose_logging_enabled())
+
+    def test_persisted_verbose_diagnostics_survive_background_restarts(self):
+        with tempfile.TemporaryDirectory() as state_home:
+            with mock.patch.dict(
+                os.environ, {"XDG_STATE_HOME": state_home}, clear=False
+            ):
+                diagnostics.set_verbose_logging(True)
+                with ExitStack() as stack:
+                    stack.enter_context(
+                        mock.patch.object(
+                            app.feature, "authorize_service_start", return_value=None
+                        )
+                    )
+                    stack.enter_context(
+                        mock.patch.object(
+                            app.feature, "prepare_service_start", return_value=False
+                        )
+                    )
+                    stack.enter_context(
+                        mock.patch.object(
+                            app,
+                            "validate_x11_session",
+                            return_value=SimpleNamespace(display=":test"),
+                        )
+                    )
+                    stack.enter_context(mock.patch.object(app, "X11Connection"))
+                    popen = stack.enter_context(
+                        mock.patch.object(app.subprocess, "Popen")
+                    )
+                    with redirect_stdout(io.StringIO()), redirect_stderr(
+                        io.StringIO()
+                    ):
+                        self.assertEqual(app.start_background(False, None), 0)
+                        self.assertIn("--verbose", popen.call_args.args[0])
+                        self.assertEqual(app.start_background(False, None), 0)
+                        self.assertIn("--verbose", popen.call_args.args[0])
+
+                self.assertTrue(diagnostics.verbose_logging_enabled())
+
+    def test_foreground_autostart_uses_persisted_verbose_diagnostics(self):
+        with tempfile.TemporaryDirectory() as state_home:
+            with mock.patch.dict(
+                os.environ, {"XDG_STATE_HOME": state_home}, clear=False
+            ):
+                diagnostics.set_verbose_logging(True)
+
+                class FakeConnection:
+                    def __enter__(self):
+                        return self
+
+                    def __exit__(self, _exc_type, _exc_value, _traceback):
+                        return None
+
+                    def server_description(self):
+                        return "test X11 server"
+
+                    def run(self, _stop_requested, _on_cleaned):
+                        return None
+
+                with ExitStack() as stack:
+                    stack.enter_context(
+                        mock.patch.object(
+                            app.feature, "authorize_service_start", return_value=None
+                        )
+                    )
+                    stack.enter_context(
+                        mock.patch.object(
+                            app,
+                            "validate_x11_session",
+                            return_value=SimpleNamespace(
+                                session_type="x11",
+                                display=":test",
+                                boundary="X11",
+                            ),
+                        )
+                    )
+                    stack.enter_context(
+                        mock.patch.object(
+                            app, "X11Connection", return_value=FakeConnection()
+                        )
+                    )
+                    stack.enter_context(
+                        mock.patch.object(
+                            app, "InstanceLock", return_value=mock.MagicMock()
+                        )
+                    )
+                    configure = stack.enter_context(
+                        mock.patch.object(
+                            app, "configure_logging", return_value=Path("log")
+                        )
+                    )
+
+                    self.assertEqual(app.run_foreground(False, None), 0)
+
+                configure.assert_called_once_with(True, None, foreground=True)
 
     def test_packaged_launcher_marks_packaged_runtime(self):
         launcher = (PROJECT_ROOT / "packaging" / "dolphin-clean-title").read_text(

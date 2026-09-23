@@ -40,15 +40,15 @@ class TitleRuleTests(unittest.TestCase):
                 self.assertFalse(has_supported_suffix(title))
 
     def test_suffix_split_preserves_exact_separator_and_spacing(self):
-        for title in (
-            "Home — Dolphin",
-            "Home - Dolphin",
-            "Home— Dolphin",
-            "Home  — Dolphin",
-        ):
+        cases = {
+            "Home — Dolphin": ("Home", " — Dolphin"),
+            "Home - Dolphin": ("Home", " - Dolphin"),
+            "Home— Dolphin": ("Home", "— Dolphin"),
+            "Home  — Dolphin": ("Home ", " — Dolphin"),
+        }
+        for title, expected in cases.items():
             with self.subTest(title=title):
                 split = split_supported_suffix(title)
-                self.assertIsNotNone(split)
-                assert split is not None
-                base, suffix = split
+                self.assertEqual(split, expected)
+                base, suffix = expected
                 self.assertEqual(base + suffix, title)

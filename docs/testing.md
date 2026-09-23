@@ -53,8 +53,13 @@ constraints:
 - The live X11 integration test creates controlled X11 windows, changes their
   titles, and verifies that matching Dolphin windows are rewritten while other
   windows are not. It also verifies subsequent title changes and EWMH-visible
-  results. It is skipped when no X11 display is available; a skipped live test
-  is an environment limitation, not evidence of native Wayland support.
+  results, exact restoration after a suffix-free `WM_NAME` update, and that
+  logs identify the XID and outcomes without logging title contents. It is
+  skipped when no X11 display is available; a skipped live test is an
+  environment limitation, not evidence of native Wayland support.
+- Diagnostic-preference tests verify verbose tracing remains selected across
+  repeated background starts and direct autostart starts, while remaining
+  separate from feature activation state.
 
 The real-machine release verification additionally exercises the installed
 wrapper through terminal, desktop-entry, directory-opener, and FileManager1

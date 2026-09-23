@@ -25,6 +25,10 @@ def log_path(env: Mapping[str, str] | None = None) -> Path:
     return state_dir(env) / f"{APP_NAME}.log"
 
 
+def verbose_logging_path(env: Mapping[str, str] | None = None) -> Path:
+    return state_dir(env) / "verbose-logging"
+
+
 def lock_path(env: Mapping[str, str] | None = None) -> Path:
     return state_dir(env) / f"{APP_NAME}.lock"
 

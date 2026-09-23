@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Sequence
 
 from . import __version__
+from . import diagnostics
 from .environment import EnvironmentError, session_info, validate_x11_session
 from . import feature
 from .lifecycle import InstanceAlreadyRunning, InstanceLock, stop_running
@@ -91,8 +92,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "command",
         nargs="?",
-        choices=("enable", "disable", "status", "ui"),
-        help="manage the persistent feature or open its settings window",
+        choices=("enable", "disable", "status", "ui", "diagnostics"),
+        help="manage the feature, diagnostics, or settings window",
+    )
+    parser.add_argument(
+        "diagnostics_action",
+        nargs="?",
+        choices=("on", "off", "status"),
+        help="for diagnostics, persist verbose logging across cleaner starts",
     )
     return parser
 
@@ -117,6 +124,13 @@ def configure_logging(verbose: bool, path: str | None, foreground: bool) -> Path
 def _error(message: str) -> int:
     print(f"ERROR: {message}", file=sys.stderr)
     return 2
+
+
+def _effective_verbose(requested: bool) -> tuple[bool, str | None]:
+    try:
+        return requested or diagnostics.verbose_logging_enabled(), None
+    except diagnostics.DiagnosticsError as exc:
+        return requested, str(exc)
 
 
 def _diagnostic_argument(value: str, index: int) -> str:
@@ -237,6 +251,7 @@ def start_background(
     path: str | None,
     expected_install_id: str | None = None,
 ) -> int:
+    verbose, _diagnostics_warning = _effective_verbose(verbose)
     try:
         authorized_install_id = feature.authorize_service_start(expected_install_id)
         if feature.prepare_service_start(authorized_install_id):
@@ -286,10 +301,13 @@ def run_foreground(
     path: str | None,
     expected_install_id: str | None = None,
 ) -> int:
+    verbose, diagnostics_warning = _effective_verbose(verbose)
     try:
         destination = configure_logging(verbose, path, foreground=True)
     except OSError as exc:
         return _error(f"cannot configure logging: {exc}")
+    if diagnostics_warning:
+        LOGGER.warning("ignoring verbose logging preference: %s", diagnostics_warning)
     try:
         expected_install_id = feature.authorize_service_start(expected_install_id)
     except feature.FeatureError as exc:
@@ -345,10 +363,8 @@ def run_foreground(
 
                 def on_cleaned(result) -> None:
                     LOGGER.info(
-                        "rewrote window 0x%x title %r -> %r",
+                        "rewrote Dolphin title for window 0x%x",
                         result.window,
-                        result.original,
-                        result.cleaned,
                     )
 
                 connection.run(service_should_stop, on_cleaned)
@@ -383,8 +399,47 @@ def run_feature_command(command: str) -> int:
         return _error(f"settings UI is unavailable: {exc}")
 
 
+def run_diagnostics_command(action: str) -> int:
+    try:
+        if action == "status":
+            enabled = diagnostics.verbose_logging_enabled()
+        else:
+            enabled = diagnostics.set_verbose_logging(action == "on")
+    except diagnostics.DiagnosticsError as exc:
+        return _error(str(exc))
+
+    if action == "status":
+        print(f"verbose logging {'enabled' if enabled else 'disabled'}")
+    else:
+        state = "enabled" if enabled else "disabled"
+        print(
+            f"verbose logging {state}; applies when the cleaner next starts"
+        )
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "diagnostics":
+        if args.diagnostics_action is None:
+            return _error("diagnostics requires one of: on, off, status")
+        if (
+            args.background
+            or args.stop
+            or args.check
+            or args.diagnose
+            or args.prepare_launch
+            or args.expected_install_id
+            or args.foreground
+            or args.verbose
+            or args.log_file
+        ):
+            return _error(
+                "diagnostic preferences cannot be combined with service options"
+            )
+        return run_diagnostics_command(args.diagnostics_action)
+    if args.diagnostics_action is not None:
+        return _error("a diagnostics action must follow the diagnostics command")
     if args.command:
         if (
             args.background

@@ -490,11 +490,12 @@ class X11Connection:
                     self.set_net_title(window, restore_title)
                 LOGGER.info("restored title for window 0x%x", window)
             except (X11Unavailable, OSError) as exc:
-                LOGGER.debug(
-                    "window 0x%x disappeared during title restoration: %s",
+                LOGGER.info(
+                    "skipped title restoration for window 0x%x because "
+                    "the window became unavailable",
                     window,
-                    exc,
                 )
+                LOGGER.debug("window 0x%x restoration detail: %s", window, exc)
         self._owned_titles.clear()
 
     def refresh(self, windows: set[int]) -> set[int]:
@@ -523,19 +524,51 @@ class X11Connection:
         cleaned = title_parts[0] if title_parts is not None else info.title
         current_net_title = self._get_text(info.window, self.net_wm_name)
         owned = self._owned_titles.get(info.window)
+        source_name = (
+            "_NET_WM_NAME"
+            if source_atom == self.net_wm_name
+            else "WM_NAME"
+            if source_atom == self.wm_name
+            else "window refresh"
+        )
+        title_class = (
+            "suffix-bearing" if title_parts is not None else "suffix-free"
+        )
+        LOGGER.debug(
+            "observed Dolphin title property for window 0x%x: source=%s "
+            "classification=%s ownership=%s",
+            info.window,
+            source_name,
+            title_class,
+            "owned" if owned is not None else "unowned",
+        )
 
         # WM_NAME can be the only property an application updates. Do not
         # replace an unrelated EWMH title, but do follow a title this service
         # already owns or create one when the EWMH property is absent.
         if source_atom == self.wm_name and owned is None:
             if current_net_title is not None or cleaned == info.title:
+                LOGGER.debug(
+                    "ignored WM_NAME update for unowned window 0x%x: "
+                    "an EWMH title already exists or no suffix matched",
+                    info.window,
+                )
                 return None
         if source_atom == self.net_wm_name and cleaned == info.title:
-            self._owned_titles.pop(info.window, None)
+            self._drop_title_ownership(
+                info.window, "application published a suffix-free EWMH title"
+            )
             return None
         if current_net_title == cleaned:
             if owned is not None and source_atom == self.wm_name:
                 self._update_restore_title(owned, info.title, title_parts)
+                LOGGER.debug(
+                    "updated restoration state for window 0x%x from %s "
+                    "(%s title)",
+                    info.window,
+                    source_name,
+                    title_class,
+                )
             return None
 
         if owned is None:
@@ -549,11 +582,24 @@ class X11Connection:
                 cleaned,
             )
             self._owned_titles[info.window] = owned
+            LOGGER.info("acquired title ownership for window 0x%x", info.window)
         else:
             self._update_restore_title(owned, info.title, title_parts)
             owned.cleaned_title = cleaned
+            LOGGER.debug(
+                "updated restoration state for window 0x%x from %s (%s title)",
+                info.window,
+                source_name,
+                title_class,
+            )
         self.set_net_title(info.window, cleaned)
         return CleanResult(info.window, info.title, cleaned)
+
+    def _drop_title_ownership(self, window: int, reason: str) -> None:
+        if self._owned_titles.pop(window, None) is not None:
+            LOGGER.info(
+                "dropped title ownership for window 0x%x: %s", window, reason
+            )
 
     @staticmethod
     def _update_restore_title(
@@ -634,6 +680,10 @@ class X11Connection:
                     REPARENT_NOTIFY,
                 ):
                     windows = self.refresh(windows)
+                    for window in set(self._owned_titles) - windows:
+                        self._drop_title_ownership(
+                            window, "window is no longer present"
+                        )
                     self._owned_titles = {
                         window: owned
                         for window, owned in self._owned_titles.items()

@@ -25,6 +25,17 @@ boundary and shows the error dialog while keeping its switch unavailable.
 The default log is under the XDG state directory; use `--log-file` to place a
 diagnostic log under `.artifacts/` during development.
 
+Normal service logs identify windows by XID and record ownership, rewrite, and
+restoration outcomes without recording folder-title contents. For detailed
+property-event tracing across settings-app OFF→ON restarts, enable the separate
+diagnostic preference with `dolphin-clean-title diagnostics on`; disable it
+with `dolphin-clean-title diagnostics off` and inspect it with
+`dolphin-clean-title diagnostics status`. The preference is stored in the
+XDG state directory, is off by default, and does not change feature state. It
+takes effect when the cleaner next starts; toggle the feature off and on to
+apply it to a currently running cleaner. `--verbose` remains a one-invocation
+override. Detailed tracing also omits title contents.
+
 The managed Dolphin wrapper uses the process cgroup to distinguish ordinary
 launches from children started by `plasma-dolphin.service`. For a FileManager1
 failure, inspect wrapper resolution and transient units with:
