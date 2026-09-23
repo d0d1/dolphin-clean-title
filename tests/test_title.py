@@ -1,6 +1,10 @@
 import unittest
 
-from dolphin_clean_title.title import clean_title, has_supported_suffix
+from dolphin_clean_title.title import (
+    clean_title,
+    has_supported_suffix,
+    split_supported_suffix,
+)
 
 
 class TitleRuleTests(unittest.TestCase):
@@ -34,3 +38,17 @@ class TitleRuleTests(unittest.TestCase):
             with self.subTest(title=title):
                 self.assertEqual(clean_title(title), title)
                 self.assertFalse(has_supported_suffix(title))
+
+    def test_suffix_split_preserves_exact_separator_and_spacing(self):
+        for title in (
+            "Home — Dolphin",
+            "Home - Dolphin",
+            "Home— Dolphin",
+            "Home  — Dolphin",
+        ):
+            with self.subTest(title=title):
+                split = split_supported_suffix(title)
+                self.assertIsNotNone(split)
+                assert split is not None
+                base, suffix = split
+                self.assertEqual(base + suffix, title)

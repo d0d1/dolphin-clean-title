@@ -233,6 +233,74 @@ class X11IntegrationTests(unittest.TestCase):
                 self.assertEqual(net_property[0], observer.utf8_string)
                 self.assertEqual(net_property[2], "Películas".encode("utf-8"))
                 self.assertNotIn(b"\xef\xbf\xbd", net_property[2])
+
+                daemon.terminate()
+                daemon.wait(timeout=5)
+                self._wait_for_title(
+                    observer, dolphin.window, "Películas — Dolphin", None
+                )
+            finally:
+                observer.close()
+                dolphin.close()
+                if daemon.poll() is None:
+                    daemon.terminate()
+                    daemon.wait(timeout=5)
+                if daemon.stdout:
+                    daemon.stdout.close()
+                if daemon.stderr:
+                    daemon.stderr.close()
+
+    def test_wm_name_navigation_restores_latest_title_with_observed_suffix(self):
+        with tempfile.TemporaryDirectory() as state:
+            env = os.environ.copy()
+            env["XDG_SESSION_TYPE"] = "x11"
+            env.pop("WAYLAND_DISPLAY", None)
+            env["XDG_STATE_HOME"] = state
+            env["PYTHONPATH"] = str(ROOT / "src")
+            env["PYTHONDONTWRITEBYTECODE"] = "1"
+            log_path = Path(state) / "service.log"
+            daemon = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "dolphin_clean_title",
+                    "--foreground",
+                    "--verbose",
+                    "--log-file",
+                    str(log_path),
+                ],
+                cwd=ROOT,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            dolphin = X11TestWindow(env["DISPLAY"], "dolphin", "Dolphin")
+            observer = X11Connection(env["DISPLAY"])
+            try:
+                dolphin.set_wm_title("Home - Dolphin")
+                dolphin.show()
+                self._wait_for_title(observer, dolphin.window, "Home", daemon)
+
+                # A clean WM_NAME is a real title update. It must update the
+                # base title without discarding the observed hyphen suffix.
+                dolphin.set_wm_title("Music")
+                self._wait_for_title(observer, dolphin.window, "Music", daemon)
+
+                # A later suffix-bearing title refreshes both the base and
+                # the exact suffix representation used by restoration.
+                dolphin.set_title("Pictures — Dolphin")
+                self._wait_for_title(observer, dolphin.window, "Pictures", daemon)
+                dolphin.set_wm_title("Videos")
+                self._wait_for_title(observer, dolphin.window, "Videos", daemon)
+
+                daemon.terminate()
+                daemon.wait(timeout=5)
+                self._wait_for_title(
+                    observer, dolphin.window, "Videos — Dolphin", None
+                )
+                log = log_path.read_text(encoding="utf-8")
+                self.assertIn(f"restored title for window 0x{dolphin.window:x}", log)
             finally:
                 observer.close()
                 dolphin.close()

@@ -9,7 +9,7 @@ import select
 from dataclasses import dataclass
 from typing import Callable
 
-from .title import clean_title
+from .title import split_supported_suffix
 
 LOGGER = logging.getLogger(__name__)
 
@@ -98,7 +98,8 @@ class CleanResult:
 @dataclass
 class OwnedTitle:
     original_net_title: str | None
-    restore_title: str
+    restore_base: str
+    restore_suffix: str
     cleaned_title: str
 
 
@@ -473,11 +474,21 @@ class X11Connection:
             try:
                 current = self._get_text(window, self.net_wm_name)
                 if current != owned.cleaned_title:
+                    LOGGER.info(
+                        "skipped title restoration for window 0x%x because "
+                        "its current title is no longer owned",
+                        window,
+                    )
                     continue
-                if owned.original_net_title is None:
+                restore_title = owned.restore_base + owned.restore_suffix
+                if (
+                    owned.original_net_title is None
+                    and self._get_text(window, self.wm_name) == restore_title
+                ):
                     self.delete_net_title(window)
                 else:
-                    self.set_net_title(window, owned.restore_title)
+                    self.set_net_title(window, restore_title)
+                LOGGER.info("restored title for window 0x%x", window)
             except (X11Unavailable, OSError) as exc:
                 LOGGER.debug(
                     "window 0x%x disappeared during title restoration: %s",
@@ -508,7 +519,8 @@ class X11Connection:
     ) -> CleanResult | None:
         if not info.is_dolphin or info.title is None:
             return None
-        cleaned = clean_title(info.title)
+        title_parts = split_supported_suffix(info.title)
+        cleaned = title_parts[0] if title_parts is not None else info.title
         current_net_title = self._get_text(info.window, self.net_wm_name)
         owned = self._owned_titles.get(info.window)
 
@@ -523,17 +535,36 @@ class X11Connection:
             return None
         if current_net_title == cleaned:
             if owned is not None and source_atom == self.wm_name:
-                owned.restore_title = info.title
+                self._update_restore_title(owned, info.title, title_parts)
             return None
 
         if owned is None:
-            owned = OwnedTitle(current_net_title, info.title, cleaned)
+            restore_base, restore_suffix = (
+                title_parts if title_parts is not None else (info.title, "")
+            )
+            owned = OwnedTitle(
+                current_net_title,
+                restore_base,
+                restore_suffix,
+                cleaned,
+            )
             self._owned_titles[info.window] = owned
         else:
-            owned.restore_title = info.title
+            self._update_restore_title(owned, info.title, title_parts)
             owned.cleaned_title = cleaned
         self.set_net_title(info.window, cleaned)
         return CleanResult(info.window, info.title, cleaned)
+
+    @staticmethod
+    def _update_restore_title(
+        owned: OwnedTitle,
+        title: str,
+        title_parts: tuple[str, str] | None,
+    ) -> None:
+        if title_parts is None:
+            owned.restore_base = title
+        else:
+            owned.restore_base, owned.restore_suffix = title_parts
 
     def matching_windows(self) -> list[WindowInfo]:
         result: list[WindowInfo] = []
