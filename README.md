@@ -24,6 +24,10 @@ sudo apt install ./dolphin-clean-title_0.1.0-1_all.deb
 
 Open **Dolphin Clean Title** from the application launcher and enable the switch.
 
+Existing X11/XWayland Dolphin windows are cleaned in place. Windows already
+running as native Wayland clients cannot be rewritten; close and reopen them
+after enabling so they start through XWayland.
+
 To disable the feature, turn the switch off or run:
 
 ```
