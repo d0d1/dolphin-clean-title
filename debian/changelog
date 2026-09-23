@@ -1,3 +1,9 @@
+dolphin-clean-title (0.1.0-2) noble; urgency=medium
+
+  * Declare Python as a build dependency for the package test suite.
+
+ -- d0d1 <d0d1@users.noreply.github.com>  Wed, 23 Sep 2026 15:38:04 -0300
+
 dolphin-clean-title (0.1.0-1) noble; urgency=medium
 
   * Initial Ubuntu package for Dolphin Clean Title.
