@@ -20,6 +20,14 @@ Download the latest `.deb` from [GitHub Releases](https://github.com/d0d1/dolphi
 sudo apt install ./dolphin-clean-title_0.1.0-1_all.deb
 ```
 
+On Ubuntu 24.04 LTS, you can also install from the PPA:
+
+```bash
+sudo add-apt-repository ppa:d0d1-dev/dolphin-clean-title
+sudo apt update
+sudo apt install dolphin-clean-title
+```
+
 ## Use
 
 Open **Dolphin Clean Title** from the application launcher and enable the switch.
@@ -48,6 +56,10 @@ sudo apt remove dolphin-clean-title
 ## Privacy and external services
 
 Dolphin Clean Title runs entirely locally. It has no telemetry or analytics, makes no network requests, requires no account, payments, or subscriptions, and has no external runtime service dependencies.
+
+## Disclaimer
+
+Dolphin Clean Title is an independent project and is not affiliated with or endorsed by KDE e.V. or the Dolphin project.
 
 ## Docs
 
