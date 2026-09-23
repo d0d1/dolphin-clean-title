@@ -32,10 +32,7 @@ dolphin-clean-title disable
 
 ## Compatibility
 
-The verified release boundary is Ubuntu 24.04 LTS on Linux with Dolphin,
-Python 3.10+, a usable X11 or XWayland `DISPLAY`, and a user systemd manager.
-GNOME Wayland with XWayland is verified. Native Wayland Dolphin windows and
-Wayland sessions without XWayland are outside the supported boundary.
+Verified on Ubuntu 24.04 LTS with GNOME Wayland and Dolphin 23.08.5. The package requires Python 3.10 or newer, an accessible X11 DISPLAY (Xorg or XWayland), and a working user systemd manager. On Wayland, managed Dolphin GUI windows use XWayland; title cleaning does not apply to native Wayland Dolphin windows. Sessions without XWayland are unsupported.
 
 ## Uninstall
 
@@ -46,12 +43,7 @@ sudo apt remove dolphin-clean-title
 
 ## Privacy and external services
 
-- No telemetry
-- No analytics
-- No network access
-- No account requirement
-- No payments or subscriptions
-- No external service dependencies at runtime
+Dolphin Clean Title runs entirely locally. It has no telemetry or analytics, makes no network requests, requires no account, payments, or subscriptions, and has no external runtime service dependencies.
 
 ## Docs
 
