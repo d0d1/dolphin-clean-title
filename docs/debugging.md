@@ -13,7 +13,9 @@ next useful check, and avoid requiring a user to infer hidden state.
 The service provides actionable file logging, `--verbose` foreground output,
 `--check` environment validation, and `--diagnose` inspection of the session,
 Python version, libX11 availability, X11 connectivity, X-server kind/vendor
-and protocol version, Dolphin processes, and matching windows.
+and protocol version, Dolphin processes, and matching windows. For matching
+windows, `--diagnose` reports whether a title is unset, suffix-bearing, or
+suffix-free; it does not print the raw title text.
 The installed lifecycle command adds `status`, which reports the persisted
 feature state only when the managed activation files agree with it. A partial
 or colliding activation is reported as an error rather than being treated as

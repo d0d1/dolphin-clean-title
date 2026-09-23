@@ -17,6 +17,7 @@ from .environment import EnvironmentError, session_info, validate_x11_session
 from . import feature
 from .lifecycle import InstanceAlreadyRunning, InstanceLock, stop_running
 from .paths import log_path
+from .title import has_supported_suffix
 from .x11 import X11Connection, X11Unavailable, find_x11_library
 
 LOGGER = logging.getLogger(__name__)
@@ -234,11 +235,16 @@ def diagnose() -> int:
             print(f"X11 server: {connection.server_description()}")
             print(f"matching Dolphin windows: {len(matches)}")
             for window in matches:
-                title = window.title if window.title is not None else "<unset>"
+                if window.title is None:
+                    title_class = "unset"
+                elif has_supported_suffix(window.title):
+                    title_class = "suffix-bearing"
+                else:
+                    title_class = "suffix-free"
                 print(
                     f"  window=0x{window.window:x} "
                     f"class={window.instance!r}/{window.window_class!r} "
-                    f"title={title!r}"
+                    f"title_class={title_class}"
                 )
     except (EnvironmentError, X11Unavailable) as exc:
         print(f"diagnosis: unsupported or unavailable ({exc})")

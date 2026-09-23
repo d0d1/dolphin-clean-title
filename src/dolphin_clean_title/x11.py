@@ -457,6 +457,33 @@ class X11Connection:
             self._ignored_property_events.get(key, 0) + 1
         )
 
+    def _consume_ignored_property_event(self, window: int, atom: int) -> bool:
+        key = (window, atom)
+        ignored = self._ignored_property_events.get(key, 0)
+        if not ignored:
+            return False
+
+        remaining = ignored - 1
+        if remaining:
+            self._ignored_property_events[key] = remaining
+        else:
+            del self._ignored_property_events[key]
+
+        property_name = {
+            self.net_wm_name: "_NET_WM_NAME",
+            self.wm_name: "WM_NAME",
+            self.wm_class: "WM_CLASS",
+        }.get(atom, "unknown")
+        LOGGER.debug(
+            "ignored self-generated property event for window 0x%x: "
+            "property=%s atom=%d remaining_ignore_count=%d",
+            window,
+            property_name,
+            atom,
+            remaining,
+        )
+        return True
+
     def delete_net_title(self, window: int) -> None:
         self._last_x_error = None
         self.lib.XDeleteProperty(
@@ -498,14 +525,20 @@ class X11Connection:
                 LOGGER.debug("window 0x%x restoration detail: %s", window, exc)
         self._owned_titles.clear()
 
-    def refresh(self, windows: set[int]) -> set[int]:
+    def refresh(
+        self,
+        windows: set[int],
+        on_cleaned: Callable[[CleanResult], None] | None = None,
+    ) -> set[int]:
         current = set(self._get_window_ids())
         for window in current - windows:
             try:
                 self._subscribe(window)
                 info = self.window_info(window)
                 if info and info.is_dolphin:
-                    self.rewrite_if_needed(info)
+                    cleaned = self.rewrite_if_needed(info)
+                    if cleaned and on_cleaned:
+                        on_cleaned(cleaned)
             except X11Unavailable as exc:
                 LOGGER.debug("window 0x%x disappeared during refresh: %s", window, exc)
         return current
@@ -529,6 +562,8 @@ class X11Connection:
             if source_atom == self.net_wm_name
             else "WM_NAME"
             if source_atom == self.wm_name
+            else "WM_CLASS"
+            if source_atom == self.wm_class
             else "window refresh"
         )
         title_class = (
@@ -561,13 +596,16 @@ class X11Connection:
             return None
         if current_net_title == cleaned:
             if owned is not None and source_atom == self.wm_name:
-                self._update_restore_title(owned, info.title, title_parts)
-                LOGGER.debug(
-                    "updated restoration state for window 0x%x from %s "
-                    "(%s title)",
+                base_changed, suffix_changed = self._update_restore_title(
+                    owned, info.title, title_parts
+                )
+                self._log_restoration_update(
                     info.window,
                     source_name,
                     title_class,
+                    base_changed,
+                    suffix_changed,
+                    False,
                 )
             return None
 
@@ -584,13 +622,18 @@ class X11Connection:
             self._owned_titles[info.window] = owned
             LOGGER.info("acquired title ownership for window 0x%x", info.window)
         else:
-            self._update_restore_title(owned, info.title, title_parts)
+            base_changed, suffix_changed = self._update_restore_title(
+                owned, info.title, title_parts
+            )
+            cleaned_changed = owned.cleaned_title != cleaned
             owned.cleaned_title = cleaned
-            LOGGER.debug(
-                "updated restoration state for window 0x%x from %s (%s title)",
+            self._log_restoration_update(
                 info.window,
                 source_name,
                 title_class,
+                base_changed,
+                suffix_changed,
+                cleaned_changed,
             )
         self.set_net_title(info.window, cleaned)
         return CleanResult(info.window, info.title, cleaned)
@@ -606,11 +649,38 @@ class X11Connection:
         owned: OwnedTitle,
         title: str,
         title_parts: tuple[str, str] | None,
-    ) -> None:
+    ) -> tuple[bool, bool]:
+        old_base = owned.restore_base
+        old_suffix = owned.restore_suffix
         if title_parts is None:
             owned.restore_base = title
         else:
             owned.restore_base, owned.restore_suffix = title_parts
+        return (
+            owned.restore_base != old_base,
+            owned.restore_suffix != old_suffix,
+        )
+
+    @staticmethod
+    def _log_restoration_update(
+        window: int,
+        source: str,
+        title_class: str,
+        base_changed: bool,
+        suffix_changed: bool,
+        cleaned_changed: bool,
+    ) -> None:
+        LOGGER.debug(
+            "updated restoration state for window 0x%x: source=%s "
+            "classification=%s restore_base_changed=%s "
+            "restore_suffix_changed=%s cleaned_title_changed=%s",
+            window,
+            source,
+            title_class,
+            "yes" if base_changed else "no",
+            "yes" if suffix_changed else "no",
+            "yes" if cleaned_changed else "no",
+        )
 
     def matching_windows(self) -> list[WindowInfo]:
         result: list[WindowInfo] = []
@@ -630,7 +700,7 @@ class X11Connection:
         on_cleaned: Callable[[CleanResult], None] | None = None,
     ) -> None:
         windows: set[int] = set()
-        windows = self.refresh(windows)
+        windows = self.refresh(windows, on_cleaned)
         while not stop_requested():
             if self.lib.XPending(self.display) == 0:
                 try:
@@ -648,13 +718,9 @@ class X11Connection:
                 if event_type == PROPERTY_NOTIFY:
                     event = XPropertyEvent.from_buffer(event_buffer)
                     if event.atom in (self.net_wm_name, self.wm_name, self.wm_class):
-                        key = (int(event.window), int(event.atom))
-                        ignored = self._ignored_property_events.get(key, 0)
-                        if ignored:
-                            if ignored == 1:
-                                del self._ignored_property_events[key]
-                            else:
-                                self._ignored_property_events[key] = ignored - 1
+                        if self._consume_ignored_property_event(
+                            int(event.window), int(event.atom)
+                        ):
                             continue
                         try:
                             info = self.window_info(
@@ -679,7 +745,7 @@ class X11Connection:
                     MAP_NOTIFY,
                     REPARENT_NOTIFY,
                 ):
-                    windows = self.refresh(windows)
+                    windows = self.refresh(windows, on_cleaned)
                     for window in set(self._owned_titles) - windows:
                         self._drop_title_ownership(
                             window, "window is no longer present"
@@ -689,4 +755,4 @@ class X11Connection:
                         for window, owned in self._owned_titles.items()
                         if window in windows
                     }
-            windows = self.refresh(windows)
+            windows = self.refresh(windows, on_cleaned)

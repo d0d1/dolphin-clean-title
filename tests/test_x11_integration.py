@@ -70,12 +70,13 @@ class X11TestWindow:
         )
         string_atom = self.lib.XInternAtom(self.display, b"STRING", 0)
         wm_class = self.lib.XInternAtom(self.display, b"WM_CLASS", 0)
+        self.wm_class = wm_class
+        self.string_atom = string_atom
         class_data = f"{instance}\0{window_class}\0".encode()
         self._change(wm_class, string_atom, class_data)
         self.net_wm_name = self.lib.XInternAtom(self.display, b"_NET_WM_NAME", 0)
         self.utf8_string = self.lib.XInternAtom(self.display, b"UTF8_STRING", 0)
         self.wm_name = self.lib.XInternAtom(self.display, b"WM_NAME", 0)
-        self.string_atom = self.lib.XInternAtom(self.display, b"STRING", 0)
 
     def _change(self, property_atom, type_atom, data: bytes):
         buffer_type = ctypes.c_ubyte * max(len(data), 1)
@@ -104,6 +105,11 @@ class X11TestWindow:
         self._change(self.wm_name, self.string_atom, title)
         self.lib.XFlush(self.display)
 
+    def set_wm_class(self, instance: str, window_class: str) -> None:
+        class_data = f"{instance}\0{window_class}\0".encode()
+        self._change(self.wm_class, self.string_atom, class_data)
+        self.lib.XFlush(self.display)
+
     def show(self) -> None:
         self.lib.XMapWindow(self.display, self.window)
         self.lib.XFlush(self.display)
@@ -118,6 +124,76 @@ class X11TestWindow:
 
 @unittest.skipUnless(os.environ.get("DISPLAY"), "an X11 display is required")
 class X11IntegrationTests(unittest.TestCase):
+    def test_initial_refresh_rewrite_and_self_event_are_logged_once(self):
+        with tempfile.TemporaryDirectory() as state:
+            env = os.environ.copy()
+            env["XDG_SESSION_TYPE"] = "x11"
+            env.pop("WAYLAND_DISPLAY", None)
+            env["XDG_STATE_HOME"] = state
+            env["PYTHONPATH"] = str(ROOT / "src")
+            env["PYTHONDONTWRITEBYTECODE"] = "1"
+            log_path = Path(state) / "service.log"
+            dolphin = X11TestWindow(env["DISPLAY"], "dolphin", "Dolphin")
+            dolphin.set_title("Initial — Dolphin")
+            dolphin.show()
+            observer = X11Connection(env["DISPLAY"])
+            daemon = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "dolphin_clean_title",
+                    "--foreground",
+                    "--verbose",
+                    "--log-file",
+                    str(log_path),
+                ],
+                cwd=ROOT,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                self._wait_for_title(observer, dolphin.window, "Initial", daemon)
+                self._wait_for_log(
+                    log_path,
+                    "ignored self-generated property event for window "
+                    f"0x{dolphin.window:x}: property=_NET_WM_NAME",
+                    daemon,
+                )
+                dolphin.set_wm_class("dolphin", "Dolphin")
+                self._wait_for_log(
+                    log_path,
+                    f"window 0x{dolphin.window:x}: source=WM_CLASS",
+                    daemon,
+                )
+            finally:
+                observer.close()
+                dolphin.close()
+                daemon.terminate()
+                try:
+                    daemon.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    daemon.kill()
+                    daemon.wait(timeout=5)
+                if daemon.stdout:
+                    daemon.stdout.close()
+                if daemon.stderr:
+                    daemon.stderr.close()
+
+            log = log_path.read_text(encoding="utf-8")
+            rewrite = f"rewrote Dolphin title for window 0x{dolphin.window:x}"
+            self.assertEqual(log.count(rewrite), 1, log)
+            self.assertIn(
+                f"source=window refresh classification=suffix-bearing",
+                log,
+            )
+            self.assertIn(
+                f"window 0x{dolphin.window:x}: source=WM_CLASS",
+                log,
+            )
+            self.assertNotIn("Initial — Dolphin", log)
+
     def test_rewrites_dolphin_titles_and_leaves_other_windows_alone(self):
         with tempfile.TemporaryDirectory() as state:
             env = os.environ.copy()
@@ -136,6 +212,7 @@ class X11IntegrationTests(unittest.TestCase):
                     "-m",
                     "dolphin_clean_title",
                     "--foreground",
+                    "--verbose",
                     "--log-file",
                     str(log_path),
                 ],
@@ -170,6 +247,12 @@ class X11IntegrationTests(unittest.TestCase):
                 self._wait_for_title(observer, dolphin.window, "Home — Dolphin", daemon)
                 dolphin.set_title("Home — dolphin")
                 self._wait_for_title(observer, dolphin.window, "Home — dolphin", daemon)
+                dolphin.set_wm_class("dolphin", "Dolphin")
+                self._wait_for_log(
+                    log_path,
+                    f"window 0x{dolphin.window:x}: source=WM_CLASS",
+                    daemon,
+                )
             finally:
                 observer.close()
                 dolphin.close()
@@ -191,6 +274,7 @@ class X11IntegrationTests(unittest.TestCase):
             self.assertNotIn("Videos - Dolphin", log)
             self.assertNotIn("Pictures - Dolphin", log)
             self.assertIn("connected to X11", log)
+            self.assertIn("source=WM_CLASS", log)
 
     def test_latin1_wm_name_does_not_corrupt_owned_utf8_title(self):
         with tempfile.TemporaryDirectory() as state:
@@ -495,3 +579,15 @@ class X11IntegrationTests(unittest.TestCase):
             time.sleep(0.05)
         info = observer.window_info(window)
         self.fail(f"timed out waiting for {expected!r}; got {info!r}")
+
+    def _wait_for_log(self, path, expected, daemon):
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if daemon is not None and daemon.poll() is not None:
+                stderr = daemon.stderr.read() if daemon.stderr else ""
+                self.fail(f"daemon exited early: {stderr}")
+            if path.exists() and expected in path.read_text(encoding="utf-8"):
+                return
+            time.sleep(0.05)
+        content = path.read_text(encoding="utf-8") if path.exists() else "<no log>"
+        self.fail(f"timed out waiting for log marker {expected!r}; log: {content}")

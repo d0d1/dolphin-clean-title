@@ -9,6 +9,7 @@ from unittest import mock
 
 from dolphin_clean_title import app
 from dolphin_clean_title import diagnostics
+from dolphin_clean_title.x11 import WindowInfo
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -400,6 +401,61 @@ class RuntimeLifecycleTests(unittest.TestCase):
                     Path(directory) / "missing",
                 ):
                     self.assertTrue(app.packaged_runtime_available())
+
+    def test_diagnose_reports_title_class_without_raw_window_title(self):
+        private_title = "private-folder-marker — Dolphin"
+        window = WindowInfo(0x123, "dolphin", "Dolphin", private_title)
+
+        class FakeConnection:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, _exc_type, _exc_value, _traceback):
+                return None
+
+            def matching_windows(self):
+                return [window]
+
+            def server_description(self):
+                return "test X11 server"
+
+        session = SimpleNamespace(
+            session_type="wayland",
+            display=":test",
+            wayland_display="wayland-test",
+            boundary="Wayland desktop with XWayland",
+        )
+        with ExitStack() as stack:
+            stack.enter_context(
+                mock.patch.object(app, "session_info", return_value=session)
+            )
+            stack.enter_context(
+                mock.patch.object(
+                    app,
+                    "validate_x11_session",
+                    return_value=SimpleNamespace(display=":test"),
+                )
+            )
+            stack.enter_context(
+                mock.patch.object(
+                    app, "X11Connection", return_value=FakeConnection()
+                )
+            )
+            stack.enter_context(
+                mock.patch.object(app, "_dolphin_processes", return_value=[])
+            )
+            stack.enter_context(
+                mock.patch.object(
+                    app, "find_x11_library", return_value="libX11.so.6"
+                )
+            )
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(app.diagnose(), 0)
+
+        self.assertIn("title_class=suffix-bearing", output.getvalue())
+        self.assertNotIn(private_title, output.getvalue())
+        self.assertNotIn("private-folder-marker", output.getvalue())
 
 
 if __name__ == "__main__":
